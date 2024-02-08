@@ -30,6 +30,13 @@ class _Parse_THREAD:
         self.thread_name = args[1]
 
 
+class _Parse_COUNTERTRACK:
+    def __init__(self, args):
+        assert len(args) == 2, f"COUNTERTRACK expects 2 arguments, got: {args}"
+        self.tid = int(args[0])
+        self.name = args[1]
+
+
 class _Parse_LOCATION:
     def __init__(self, args):
         assert len(args) == 5, f"LOCATION expects 5 arguments, got: {args}"
@@ -76,11 +83,20 @@ class _Parse_ZFLOW:
         self.tid = int(args[0])
         self.flowid = int(args[1])
 
+
 class _Parse_ZCATEGORY:
     def __init__(self, args):
         assert len(args) == 2, f"ZCATEGORY expects 2 arguments, got: {args}"
         self.tid = int(args[0])
         self.category_name = args[1]
+
+
+class _Parse_COUNTERVALUE:
+    def __init__(self, args):
+        assert len(args) == 3, f"COUNTERVALUE expects 3 arguments, got: {args}"
+        self.tid = int(args[0])
+        self.timestamp = int(args[1])
+        self.value = int(args[2])
 
 
 def _csv_to_parse_objects(rows):
@@ -90,6 +106,9 @@ def _csv_to_parse_objects(rows):
 
         if command == "THREAD":
             yield _Parse_THREAD(args)
+
+        elif command == "COUNTERTRACK":
+            yield _Parse_COUNTERTRACK(args)
 
         elif command == "LOCATION":
             yield _Parse_LOCATION(args)
@@ -111,6 +130,9 @@ def _csv_to_parse_objects(rows):
 
         elif command == "ZCATEGORY":
             yield _Parse_ZCATEGORY(args)
+
+        elif command == "COUNTERVALUE":
+            yield _Parse_COUNTERVALUE(args)
 
         else:
             raise ValueError(f"Unknown command {command}")
@@ -144,6 +166,9 @@ def _parse_objects_to_dto(objects):
             threads[obj.tid] = obj
             yield dto.Thread(obj.tid, obj.thread_name)
 
+        elif isinstance(obj, _Parse_COUNTERTRACK):
+            yield dto.CounterTrack(obj.tid, obj.name)
+
         elif isinstance(obj, _Parse_LOCATION):
             location = _dto_location(obj)
             locations[obj.locid] = location
@@ -175,8 +200,6 @@ def _parse_objects_to_dto(objects):
         elif isinstance(obj, _Parse_ZNAME):
             zone = open_zones_per_thread[obj.tid][-1]
             zone.name = obj.text
-            print(obj.text)
-            print(zone)
 
         elif isinstance(obj, _Parse_ZFLOW):
             zone = open_zones_per_thread[obj.tid][-1]
@@ -185,6 +208,9 @@ def _parse_objects_to_dto(objects):
         elif isinstance(obj, _Parse_ZCATEGORY):
             zone = open_zones_per_thread[obj.tid][-1]
             zone.categories.append(obj.category_name)
+
+        elif isinstance(obj, _Parse_COUNTERVALUE):
+            yield dto.CounterValue(obj.tid, obj.timestamp, obj.value)
 
         else:
             raise ValueError(f"Unknown object {obj}")

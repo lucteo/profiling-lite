@@ -10,6 +10,14 @@ class Thread:
 
 
 @dataclass
+class CounterTrack:
+    """Describes a track for counter."""
+
+    tid: int
+    name: str
+
+
+@dataclass
 class Location:
     """Describes a location in the source code."""
 
@@ -65,3 +73,11 @@ class ZoneParam:
     tid: int
     name: str
     value: str | bool | int | float
+
+@dataclass
+class CounterValue:
+    """Describes a value for a counter."""
+
+    tid: int
+    timestamp: int
+    value: int | float
