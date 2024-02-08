@@ -9,6 +9,7 @@
 # ZPARAM, tid, name, value
 # ZNAME, tid, text
 # ZFLOW, tid, flowid
+# ZCATEGORY, tid, category_name
 
 THREAD, 100, "Main thread"
 THREAD, 101, "Background thread"
@@ -16,6 +17,7 @@ LOCATION, 1, "Request generation", "my_fun1", "test_file.cpp", 1
 LOCATION, 2, "Process background result", "my_fun2", "test_file.cpp", 2
 LOCATION, 3, "Background work", "my_fun3", "test_file.cpp", 3
 ZBEGIN, 100,200,1
+ZCATEGORY, 100, "base"
 ZPARAM, 100, "bool value", true
 ZPARAM, 100, "int value", 123
 ZPARAM, 100, "double value", 3.141592
@@ -23,9 +25,11 @@ ZPARAM, 100, "string value", "Hello, world!"
 ZFLOW, 100,1234
 ZEND, 100,300
 ZBEGIN, 100,400,2
+ZCATEGORY, 100, "base"
 ZFLOW, 100,1234
 ZEND, 100,500
 ZBEGIN, 101,310,3
 ZNAME, 101, "my_background_algo"
+ZCATEGORY, 101, "background"
 ZFLOW, 101,1234
 ZEND, 101,385

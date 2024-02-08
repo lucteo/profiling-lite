@@ -76,6 +76,12 @@ class _Parse_ZFLOW:
         self.tid = int(args[0])
         self.flowid = int(args[1])
 
+class _Parse_ZCATEGORY:
+    def __init__(self, args):
+        assert len(args) == 2, f"ZCATEGORY expects 2 arguments, got: {args}"
+        self.tid = int(args[0])
+        self.category_name = args[1]
+
 
 def _csv_to_parse_objects(rows):
     for row in rows:
@@ -102,6 +108,9 @@ def _csv_to_parse_objects(rows):
 
         elif command == "ZFLOW":
             yield _Parse_ZFLOW(args)
+
+        elif command == "ZCATEGORY":
+            yield _Parse_ZCATEGORY(args)
 
         else:
             raise ValueError(f"Unknown command {command}")
@@ -172,6 +181,10 @@ def _parse_objects_to_dto(objects):
         elif isinstance(obj, _Parse_ZFLOW):
             zone = open_zones_per_thread[obj.tid][-1]
             zone.flows.append(obj.flowid)
+
+        elif isinstance(obj, _Parse_ZCATEGORY):
+            zone = open_zones_per_thread[obj.tid][-1]
+            zone.categories.append(obj.category_name)
 
         else:
             raise ValueError(f"Unknown object {obj}")

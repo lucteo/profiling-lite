@@ -35,11 +35,10 @@ class PerfettoWriter:
         """Adds a zone start event to the trace."""
         packet = self._trace.packet.add()
         packet.timestamp = z.ref.start
+        packet.trusted_packet_sequence_id = 0
         packet.track_event.type = pb2.TrackEvent.Type.TYPE_SLICE_BEGIN
         packet.track_event.track_uuid = z.ref.tid
         packet.track_event.name = z.ref.name
-        for id in z.ref.flows:
-            packet.track_event.flow_ids.append(id)
         if z.ref.loc:
             packet.track_event.source_location.iid = z.ref.loc.locid
             packet.track_event.source_location.file_name = z.ref.loc.file_name
@@ -52,14 +51,17 @@ class PerfettoWriter:
                 entry = annotation.dict_entries.add()
                 entry.name = k
                 entry.string_value = v
-        packet.trusted_packet_sequence_id = 0
+        for id in z.ref.flows:
+            packet.track_event.flow_ids.append(id)
+        for category in z.ref.categories:
+            packet.track_event.categories.append(category)
 
     def add_zone_end(self, z: dto.ZoneEnd):
         """Adds a zone end event to the trace."""
         packet = self._trace.packet.add()
         packet.timestamp = z.ref.end
+        packet.trusted_packet_sequence_id = 0
         packet.track_event.type = pb2.TrackEvent.Type.TYPE_SLICE_END
         packet.track_event.track_uuid = z.ref.tid
         for id in z.ref.flows:
             packet.track_event.flow_ids.append(id)
-        packet.trusted_packet_sequence_id = 0

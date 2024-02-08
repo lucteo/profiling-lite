@@ -31,6 +31,7 @@ class Zone:
     name: str
     params: dict = field(default_factory=dict)
     flows: list[int] = field(default_factory=list)
+    categories: list[str] = field(default_factory=list)
 
 
 @dataclass
