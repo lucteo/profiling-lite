@@ -37,22 +37,14 @@ class Zone:
 class ZoneStart:
     """Describes the start of an execution zone."""
 
-    tid: int
-    timestamp: int
-    loc: Location
-    name: str
-    params: dict = field(default_factory=dict)
-    flows: list[int] = field(default_factory=list)
+    ref: Zone
 
 
 @dataclass
 class ZoneEnd:
     """Describes the start of an execution zone."""
 
-    tid: int
-    timestamp: int
-    name: str
-    flows: list[int] = field(default_factory=list)
+    ref: Zone
 
 
 @dataclass

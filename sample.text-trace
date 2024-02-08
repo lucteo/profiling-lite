@@ -7,7 +7,7 @@
 # ZBEGIN, tid, timestamp, locid
 # ZEND, tid, timestamp
 # ZPARAM, tid, name, value
-# ZTEXT, tid, text
+# ZNAME, tid, text
 # ZFLOW, tid, flowid
 
 THREAD, 100, "Main thread"
@@ -26,5 +26,6 @@ ZBEGIN, 100,400,2
 ZFLOW, 100,1234
 ZEND, 100,500
 ZBEGIN, 101,310,3
+ZNAME, 101, "my_background_algo"
 ZFLOW, 101,1234
 ZEND, 101,385

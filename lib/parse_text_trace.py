@@ -63,9 +63,9 @@ class _Parse_ZPARAM:
         self.value = args[2]
 
 
-class _Parse_ZTEXT:
+class _Parse_ZNAME:
     def __init__(self, args):
-        assert len(args) == 2, f"ZTEXT expects 2 arguments, got: {args}"
+        assert len(args) == 2, f"ZNAME expects 2 arguments, got: {args}"
         self.tid = int(args[0])
         self.text = args[1]
 
@@ -97,8 +97,8 @@ def _csv_to_parse_objects(rows):
         elif command == "ZPARAM":
             yield _Parse_ZPARAM(args)
 
-        elif command == "ZTEXT":
-            yield _Parse_ZTEXT(args)
+        elif command == "ZNAME":
+            yield _Parse_ZNAME(args)
 
         elif command == "ZFLOW":
             yield _Parse_ZFLOW(args)
@@ -118,20 +118,11 @@ def _dto_location(l):
 
 
 def _dto_zone_start(zone):
-    return dto.ZoneStart(
-        tid=zone.tid,
-        timestamp=zone.start,
-        loc=zone.loc,
-        name=zone.name,
-        params=zone.params,
-        flows=zone.flows,
-    )
+    return dto.ZoneStart(ref=zone)
 
 
 def _dto_zone_end(zone):
-    return dto.ZoneEnd(
-        tid=zone.tid, timestamp=zone.end, name=zone.name, flows=zone.flows
-    )
+    return dto.ZoneEnd(ref=zone)
 
 
 def _parse_objects_to_dto(objects):
@@ -172,9 +163,11 @@ def _parse_objects_to_dto(objects):
             zone = open_zones_per_thread[obj.tid][-1]
             zone.params[obj.name] = obj.value
 
-        elif isinstance(obj, _Parse_ZTEXT):
+        elif isinstance(obj, _Parse_ZNAME):
             zone = open_zones_per_thread[obj.tid][-1]
             zone.name = obj.text
+            print(obj.text)
+            print(zone)
 
         elif isinstance(obj, _Parse_ZFLOW):
             zone = open_zones_per_thread[obj.tid][-1]
@@ -195,11 +188,11 @@ def _defer_zone_starts(dto_objects):
 
     for obj in dto_objects:
         if isinstance(obj, dto.ZoneStart):
-            yield from _check_deferred_zone_start(obj.tid)
-            thread_has_deferred_zone_start[obj.tid] = obj
+            yield from _check_deferred_zone_start(obj.ref.tid)
+            thread_has_deferred_zone_start[obj.ref.tid] = obj
 
         elif isinstance(obj, dto.ZoneEnd):
-            yield from _check_deferred_zone_start(obj.tid)
+            yield from _check_deferred_zone_start(obj.ref.tid)
             yield obj
         else:
             yield obj
