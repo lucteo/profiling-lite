@@ -1,40 +1,27 @@
 # Textual trace format
-#
-# Commands:
-#
-# THREAD, tid, string
-# COUNTERTRACK, tid, name
-# LOCATION, locid, name, function, file, line
-# ZBEGIN, tid, timestamp, locid
-# ZEND, tid, timestamp
-# ZPARAM, tid, name, value
-# ZNAME, tid, text
-# ZFLOW, tid, flowid
-# ZCATEGORY, tid, category_name
-# COUNTERVALUE, tid, timestamp, value
 
 THREAD, 100, "Main thread"
 THREAD, 101, "Background thread"
 LOCATION, 1, "Request generation", "my_fun1", "test_file.cpp", 1
 LOCATION, 2, "Process background result", "my_fun2", "test_file.cpp", 2
 LOCATION, 3, "Background work", "my_fun3", "test_file.cpp", 3
-ZBEGIN, 100,200,1
-ZCATEGORY, 100, "base"
-ZPARAM, 100, "bool value", true
-ZPARAM, 100, "int value", 123
-ZPARAM, 100, "double value", 3.141592
-ZPARAM, 100, "string value", "Hello, world!"
-ZFLOW, 100,1234
-ZEND, 100,300
-ZBEGIN, 100,400,2
-ZCATEGORY, 100, "base"
-ZFLOW, 100,1234
-ZEND, 100,500
-ZBEGIN, 101,310,3
-ZNAME, 101, "my_background_algo"
-ZCATEGORY, 101, "background"
-ZFLOW, 101,1234
-ZEND, 101,385
+ZONE_START, 100,200,1
+ZONE_CATEGORY, 100, "base"
+ZONE_PARAM, 100, "bool value", true
+ZONE_PARAM, 100, "int value", 123
+ZONE_PARAM, 100, "double value", 3.141592
+ZONE_PARAM, 100, "string value", "Hello, world!"
+ZONE_FLOW, 100,1234
+ZONE_END, 100,300
+ZONE_START, 100,400,2
+ZONE_CATEGORY, 100, "base"
+ZONE_FLOW, 100,1234
+ZONE_END, 100,500
+ZONE_START, 101,310,3
+ZONE_NAME, 101, "my_background_algo"
+ZONE_CATEGORY, 101, "background"
+ZONE_FLOW, 101,1234
+ZONE_END, 101,385
 COUNTERTRACK, 1, "My special counter"
 COUNTERVALUE, 1, 100, 1
 COUNTERVALUE, 1, 120, 2

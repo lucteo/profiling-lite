@@ -2,22 +2,6 @@ from dataclasses import dataclass, field
 
 
 @dataclass
-class Thread:
-    """Describes a thread in a profiling trace."""
-
-    tid: int
-    thread_name: str
-
-
-@dataclass
-class CounterTrack:
-    """Describes a track for counter."""
-
-    tid: int
-    name: str
-
-
-@dataclass
 class Location:
     """Describes a location in the source code."""
 
@@ -43,41 +27,42 @@ class Zone:
 
 
 @dataclass
-class ZoneStart:
-    """Describes the start of an execution zone."""
-
-    ref: Zone
-
-
-@dataclass
-class ZoneEnd:
-    """Describes the start of an execution zone."""
-
-    ref: Zone
-
-
-@dataclass
-class ZoneInstant:
-    """Describes a zero-duration zone."""
-
-    tid: int
-    timestamp: int
-    name: str
-    flows: list[int] = field(default_factory=list)
-
-
-@dataclass
-class ZoneParam:
-    """Describes a parameter for a zone."""
+class ZonesTrack:
+    """Describes a track for zones."""
 
     tid: int
     name: str
-    value: str | bool | int | float
+    zones: list[Zone] = field(default_factory=list)
+
 
 @dataclass
 class CounterValue:
-    """Describes a value for a counter."""
+    """Describes a value in time for a counter track."""
 
-    tid: int
     timestamp: int
     value: int | float
+
+
+@dataclass
+class CounterTrack:
+    """Describes a track for counter."""
+
+    name: str
+    values: list[CounterValue] = field(default_factory=list)
+
+
+@dataclass
+class ProcessTrack:
+    """Describes a track for a process."""
+
+    pid: int
+    name: str
+    subtracks: list[ZonesTrack] = field(default_factory=list)
+    counter_tracks: list[CounterTrack] = field(default_factory=list)
+
+
+@dataclass
+class Trace:
+    """Describes a trace with multiple tracks."""
+
+    process_tracks: list[ProcessTrack] = field(default_factory=list)

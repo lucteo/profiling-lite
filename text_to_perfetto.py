@@ -1,21 +1,12 @@
 #!env python3
 
+from lib.emit_trace import emit_trace
 from lib.perfetto_writer import PerfettoWriter
 from lib.parse_text_trace import parse_text_trace
-import lib.dto as dto
+from lib.parse_to_trace import parse_to_trace
 
-trace = PerfettoWriter()
-for item in parse_text_trace("sample.text-trace"):
-    print(item)
-    if isinstance(item, dto.Thread):
-        trace.add_thread(item)
-    elif isinstance(item, dto.CounterTrack):
-        trace.add_counter_track(item)
-    elif isinstance(item, dto.ZoneStart):
-        trace.add_zone_start(item)
-    elif isinstance(item, dto.ZoneEnd):
-        trace.add_zone_end(item)
-    elif isinstance(item, dto.CounterValue):
-        trace.add_counter_value(item)
-
-trace.write("out.perfetto-trace")
+parse_items = parse_text_trace("sample.text-trace")
+trace = parse_to_trace(parse_items)
+writer = PerfettoWriter()
+emit_trace(trace, writer)
+writer.write("out.perfetto-trace")
