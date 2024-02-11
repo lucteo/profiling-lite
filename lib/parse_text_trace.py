@@ -99,6 +99,54 @@ class _Csv_COUNTERVALUE:
         self.value = int(args[2])
 
 
+class _Csv_THREAD_SWITCH_START:
+    def __init__(self, args):
+        assert len(args) == 2, f"THREAD_SWITCH_START expects 2 arguments, got: {args}"
+        self.tid = int(args[0])
+        self.id = int(args[1])
+
+
+class _Csv_THREAD_SWITCH_END:
+    def __init__(self, args):
+        assert len(args) == 3, f"THREAD_SWITCH_END expects 3 arguments, got: {args}"
+        self.tid = int(args[0])
+        self.timestamp = int(args[1])
+        self.id = int(args[2])
+
+
+class _Csv_SPAWN:
+    def __init__(self, args):
+        assert len(args) == 4, f"SPAWN expects 4 arguments, got: {args}"
+        self.spawn_id = int(args[0])
+        self.tid = int(args[1])
+        self.timestamp = int(args[2])
+        self.num_threads = int(args[3])
+
+
+class _Csv_SPAWN_CONTINUE:
+    def __init__(self, args):
+        assert len(args) == 3, f"SPAWN_CONTINUE expects 2 arguments, got: {args}"
+        self.spawn_id = int(args[0])
+        self.tid = int(args[1])
+        self.timestamp = int(args[2])
+
+
+class _Csv_SPAWN_ENDING:
+    def __init__(self, args):
+        assert len(args) == 3, f"SPAWN_ENDING expects 2 arguments, got: {args}"
+        self.spawn_id = int(args[0])
+        self.tid = int(args[1])
+        self.timestamp = int(args[2])
+
+
+class _Csv_SPAWN_DONE:
+    def __init__(self, args):
+        assert len(args) == 3, f"SPAWN_DONE expects 2 arguments, got: {args}"
+        self.spawn_id = int(args[0])
+        self.tid = int(args[1])
+        self.timestamp = int(args[2])
+
+
 def _csv_rows_to_objects(rows):
     commands = [
         "THREAD",
@@ -111,6 +159,12 @@ def _csv_rows_to_objects(rows):
         "ZONE_FLOW",
         "ZONE_CATEGORY",
         "COUNTERVALUE",
+        "THREAD_SWITCH_START",
+        "THREAD_SWITCH_END",
+        "SPAWN",
+        "SPAWN_CONTINUE",
+        "SPAWN_ENDING",
+        "SPAWN_DONE",
     ]
     for row in rows:
         command = row[0].upper()
@@ -127,7 +181,6 @@ def _csv_objects_to_parse_dto(objects):
     for obj in objects:
         if isinstance(obj, _Csv_THREAD):
             yield dto.Thread(tid=obj.tid, thread_name=obj.thread_name)
-
         elif isinstance(obj, _Csv_COUNTERTRACK):
             yield dto.CounterTrack(tid=obj.tid, name=obj.name)
 
@@ -142,24 +195,33 @@ def _csv_objects_to_parse_dto(objects):
 
         elif isinstance(obj, _Csv_ZONE_START):
             yield dto.ZoneStart(tid=obj.tid, timestamp=obj.timestamp, locid=obj.locid)
-
         elif isinstance(obj, _Csv_ZONE_END):
             yield dto.ZoneEnd(tid=obj.tid, timestamp=obj.timestamp)
-
         elif isinstance(obj, _Csv_ZONE_NAME):
             yield dto.ZoneName(tid=obj.tid, name=obj.name)
-
         elif isinstance(obj, _Csv_ZONE_PARAM):
             yield dto.ZoneParam(tid=obj.tid, name=obj.name, value=obj.value)
-
         elif isinstance(obj, _Csv_ZONE_FLOW):
             yield dto.ZoneFlow(tid=obj.tid, flowid=obj.flowid)
-
         elif isinstance(obj, _Csv_ZONE_CATEGORY):
             yield dto.ZoneCategory(tid=obj.tid, category_name=obj.category_name)
 
         elif isinstance(obj, _Csv_COUNTERVALUE):
             yield dto.CounterValue(obj.tid, obj.timestamp, obj.value)
+
+        elif isinstance(obj, _Csv_THREAD_SWITCH_START):
+            yield dto.ThreadSwitchStart(obj.tid, obj.id)
+        elif isinstance(obj, _Csv_THREAD_SWITCH_END):
+            yield dto.ThreadSwitchEnd(obj.tid, obj.timestamp, obj.id)
+
+        elif isinstance(obj, _Csv_SPAWN):
+            yield dto.Spawn(obj.spawn_id, obj.tid, obj.timestamp, obj.num_threads)
+        elif isinstance(obj, _Csv_SPAWN_CONTINUE):
+            yield dto.SpawnContinue(obj.spawn_id, obj.tid, obj.timestamp)
+        elif isinstance(obj, _Csv_SPAWN_ENDING):
+            yield dto.SpawnEnding(obj.spawn_id, obj.tid, obj.timestamp)
+        elif isinstance(obj, _Csv_SPAWN_DONE):
+            yield dto.SpawnDone(obj.spawn_id, obj.tid, obj.timestamp)
 
         else:
             raise ValueError(f"Unknown object {obj}")

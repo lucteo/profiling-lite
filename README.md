@@ -36,3 +36,16 @@ Supported commands:
   * Adds a category for the current zone.
 * `COUNTERVALUE, tid, timestamp, value`
   * Adds a value / timestamp pair for a counter track.
+* `THREAD_SWITCH_START, tid, id``
+  * Marks the start of a potential thread-switch.
+* `THREAD_SWITCH_END, tid, timestamp, id``
+  * Marks the end of a potential thread-switch; thread-switch happens if the `tid` values differ.
+* `SPAWN, spawn_id, tid, timestamp, num_threads`
+  * Marks the beginning of a spawn operation.
+* `SPAWN_CONTINUE, spawn_id, tid, timestamp`
+  * Marks a thread that steps into the spawn region.
+* `SPAWN_ENDING, spawn_id, tid, timestamp`
+  * Marks a thread that steps out the spawn region.
+* `SPAWN_DONE, spawn_id, tid, timestamp`
+  * Marks that the entire spawn region is done.
+

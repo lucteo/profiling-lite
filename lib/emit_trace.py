@@ -79,6 +79,8 @@ def _emit_counter_values(writer, values, track_uuid):
 
 
 def _cvt_location(obj):
+    if obj is None:
+        return None
     return emit_dto.Location(
         locid=obj.locid,
         function_name=obj.function_name,

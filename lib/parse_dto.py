@@ -85,3 +85,49 @@ class CounterValue:
     tid: int
     timestamp: int
     value: int | float
+
+
+@dataclass
+class ThreadSwitchStart:
+    """Describes the start of a potential thread switch."""
+
+    tid: int
+    id: int
+
+
+@dataclass
+class ThreadSwitchEnd:
+    """Describes the end of a potential thread switch."""
+
+    tid: int
+    timestamp: int
+    id: int
+
+
+@dataclass
+class Spawn:
+    spawn_id: int
+    tid: int
+    timestamp: int
+    num_threads: int
+
+
+@dataclass
+class SpawnContinue:
+    spawn_id: int
+    tid: int
+    timestamp: int
+
+
+@dataclass
+class SpawnEnding:
+    spawn_id: int
+    tid: int
+    timestamp: int
+
+
+@dataclass
+class SpawnDone:
+    spawn_id: int
+    tid: int
+    timestamp: int
