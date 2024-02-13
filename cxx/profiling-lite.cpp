@@ -308,7 +308,7 @@ public:
     return {start, current};
   }
 
-  // private:
+private:
   //! The buffer allocated to store the packets.
   uint8_t* data_;
   //! The size of the data buffer.
