@@ -12,6 +12,11 @@ def parse_to_trace(parse_items):
     spawns = {}  # spawn_id -> _SpawnData
     thread_switch_data = _ThreadSwitchData()
 
+    def _thread(tid):
+        if tid not in threads:
+            threads[tid] = _ThreadData(tid, "Unknown")
+        return threads[tid]
+
     for item in parse_items:
         if isinstance(item, parse_dto.Thread):
             threads[item.tid] = _ThreadData(item.tid, item.thread_name)
@@ -29,17 +34,17 @@ def parse_to_trace(parse_items):
 
         elif isinstance(item, parse_dto.ZoneStart):
             loc = locations[item.locid]
-            threads[item.tid].add_zone_start(item.timestamp, loc)
+            _thread(item.tid).add_zone_start(item.timestamp, loc)
         elif isinstance(item, parse_dto.ZoneEnd):
-            threads[item.tid].add_zone_end(item.timestamp)
+            _thread(item.tid).add_zone_end(item.timestamp)
         elif isinstance(item, parse_dto.ZoneName):
-            threads[item.tid].current_zone().name = item.name
+            _thread(item.tid).current_zone().name = item.name
         elif isinstance(item, parse_dto.ZoneFlow):
-            threads[item.tid].current_zone().flows.append(item.flowid)
+            _thread(item.tid).current_zone().flows.append(item.flowid)
         elif isinstance(item, parse_dto.ZoneCategory):
-            threads[item.tid].current_zone().categories.append(item.category_name)
+            _thread(item.tid).current_zone().categories.append(item.category_name)
         elif isinstance(item, parse_dto.ZoneParam):
-            threads[item.tid].current_zone().params[item.name] = item.value
+            _thread(item.tid).current_zone().params[item.name] = item.value
 
         elif isinstance(item, parse_dto.CounterValue):
             counter_value = dto.CounterValue(timestamp=item.timestamp, value=item.value)
@@ -52,14 +57,14 @@ def parse_to_trace(parse_items):
 
         elif isinstance(item, parse_dto.Spawn):
             spawns[item.spawn_id] = _SpawnData(
-                item.spawn_id, threads[item.tid], item.timestamp, item.num_threads
+                item.spawn_id, _thread(item.tid), item.timestamp, item.num_threads
             )
         elif isinstance(item, parse_dto.SpawnContinue):
-            spawns[item.spawn_id].thread_joining(threads[item.tid], item.timestamp)
+            spawns[item.spawn_id].thread_joining(_thread(item.tid), item.timestamp)
         elif isinstance(item, parse_dto.SpawnEnding):
-            spawns[item.spawn_id].thread_leaving(threads[item.tid], item.timestamp)
+            spawns[item.spawn_id].thread_leaving(_thread(item.tid), item.timestamp)
         elif isinstance(item, parse_dto.SpawnDone):
-            spawns[item.spawn_id].done(threads[item.tid], item.timestamp)
+            spawns[item.spawn_id].done(_thread(item.tid), item.timestamp)
 
         else:
             raise ValueError(f"Unknown object {item}")
@@ -89,8 +94,9 @@ class _ThreadData:
         self.zones_track.zones.append(zone)
 
     def add_zone_end(self, timestamp):
-        self.current_zone().end = timestamp
-        self.open_zones.pop()
+        if self.open_zones:
+            self.current_zone().end = timestamp
+            self.open_zones.pop()
 
     def add_open_zone(self, zone):
         self.open_zones.append(zone)
@@ -100,6 +106,7 @@ class _ThreadData:
         self.zones_track.zones.append(zone)
 
     def current_zone(self):
+        assert len(self.open_zones) > 0, "No open zone; invalid capture file."
         return self.open_zones[-1]
 
 
@@ -194,20 +201,20 @@ def _split_open_zones(from_thread, timestamp):
     """Ends all the open zones in `from_thread` and return new corresponding zones starting with `timestamp`."""
     res = []
     for zone in from_thread.open_zones:
-        zone2 = _clone_zone(zone)
+        zone2 = _clone_zone(zone, name_prefix="(spawn clone) ")
         zone.end = timestamp
         zone2.start = timestamp
         res.append(zone2)
     return res
 
 
-def _clone_zone(zone):
+def _clone_zone(zone, name_prefix=""):
     return dto.Zone(
         zone.tid,
         zone.start,
         zone.end,
         zone.loc,
-        zone.name,
+        name_prefix + zone.name,
         zone.params.copy(),
         zone.flows.copy(),
         zone.categories.copy(),

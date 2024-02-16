@@ -79,6 +79,10 @@ struct zone {
   void set_param(const char* static_name, std::string_view name) {
     emit_zone_param(get_current_thread(), static_name, name.data());
   }
+  void add_flow(uint64_t flow_id) { emit_zone_flow(get_current_thread(), flow_id); }
+  void set_category(const char* static_name) {
+    emit_zone_category(get_current_thread(), static_name);
+  }
 };
 
 } // namespace profiling_lite

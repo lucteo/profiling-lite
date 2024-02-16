@@ -15,7 +15,6 @@ class PerfettoWriter:
 
     def add(self, item):
         """Add an emit dto object to the trace."""
-        print(item)
         if isinstance(item, dto.ProcessTrack):
             self.add_process_track(item)
         elif isinstance(item, dto.Thread):
@@ -44,8 +43,8 @@ class PerfettoWriter:
         """Adds a thread track to the trace."""
         packet = self._trace.packet.add()
         packet.track_descriptor.uuid = t.track_uuid
-        packet.track_descriptor.thread.pid = t.pid
-        packet.track_descriptor.thread.tid = t.tid
+        packet.track_descriptor.thread.pid = (t.pid & 0x7FFFFFFF)
+        packet.track_descriptor.thread.tid = (t.tid & 0x7FFFFFFF)
         packet.track_descriptor.thread.thread_name = t.thread_name
 
     def add_counter_track(self, t: dto.CounterTrack):
@@ -85,7 +84,14 @@ class PerfettoWriter:
             for k, v in z.params.items():
                 entry = annotation.dict_entries.add()
                 entry.name = k
-                entry.string_value = v
+                if isinstance(v, bool):
+                    entry.bool_value = v
+                elif isinstance(v, int):
+                    entry.int_value = v
+                elif isinstance(v, float):
+                    entry.double_value = v
+                else:
+                    entry.string_value = v
         for id in z.flows:
             packet.track_event.flow_ids.append(id)
         for category in z.categories:
