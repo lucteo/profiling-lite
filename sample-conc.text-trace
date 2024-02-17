@@ -1,3 +1,6 @@
+STACK, 2000, 1000, "Main thread"
+STACK, 4000, 5000, "Worker thread 1"
+STACK, 6000, 7000, "callcc"
 THREAD, 100, "Main thread"
 THREAD, 101, "Worker thread 1"
 
@@ -8,43 +11,40 @@ LOCATION, 4, "long_task()", "long_task()", "test_simple_example.cpp", 14
 LOCATION, 5, "post_process()", "post_process()", "test_simple_example.cpp", 45
 LOCATION, 6, "next_task()", "next_task()", "test_simple_example.cpp", 49
 
-# main start
-ZONE_START, 100, 0, 1
-# concurrency_example() start
-ZONE_START, 100, 10, 2
+THREAD_STACK, 100, 1008, 0
+THREAD_STACK, 101, 4008, 0
 
-# spawn
-SPAWN, 4096, 100, 11, 2
-SPAWN_CONTINUE, 4096, 100, 12
-SPAWN_CONTINUE, 4096, 101, 30
+# main start
+ZONE_START, 1008, 100, 0, 1
+# concurrency_example() start
+ZONE_START, 1016, 100, 10, 2
 
 # greeting_task() (main thread)
-ZONE_START, 100, 13, 3
-ZONE_END, 100, 200
+ZONE_START, 1024, 100, 13, 3
+ZONE_END, 1024, 200
 
 # await
-SPAWN_ENDING, 4096, 100, 201
-THREAD_SWITCH_START, 100, 4096
+THREAD_STACK, 100, 1032, 201
 
 # long_task() (worker thread)
-ZONE_START, 101, 31, 4
-ZONE_END, 101, 500
-SPAWN_ENDING, 4096, 101, 501
+THREAD_STACK, 101, 6008, 4
+ZONE_START, 6016, 101, 31, 4
+ZONE_END, 6016, 500
+THREAD_STACK, 101, 1008, 501
 
 # after await (switching thread)
-SPAWN_DONE, 4096, 101, 502
-THREAD_SWITCH_END, 101, 502, 4096
+THREAD_STACK, 101, 1032, 502
 
 # concurrency_example() end
-ZONE_END, 101, 503
+ZONE_END, 1016, 503
 
 # post_process
-ZONE_START, 101, 504, 5
-ZONE_END, 101, 600
+ZONE_START, 1016, 101, 504, 5
+ZONE_END, 1016, 600
 
 # next_task (worker thread picks another task)
-ZONE_START, 100, 210, 6
-ZONE_END, 100, 300
+ZONE_START, 6016, 100, 210, 6
+ZONE_END, 6016, 300
 
 # main end
-ZONE_END, 101, 601
+ZONE_END, 1008, 601

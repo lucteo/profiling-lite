@@ -20,8 +20,8 @@ enum class packet_type : uint8_t {
   static_string,
   location,
 
+  stack,
   thread_name,
-  counter_track,
 
   zone_start,
   zone_end,
@@ -32,18 +32,12 @@ enum class packet_type : uint8_t {
   zone_param_double,
   zone_param_string,
   zone_flow,
+  zone_flow_terminate,
   zone_category,
 
+  counter_track,
   counter_value_int,
   counter_value_double,
-
-  thread_switch_start,
-  thread_switch_end,
-
-  spawn,
-  spawn_continue,
-  spawn_ending,
-  spawn_done,
 };
 
 #pragma pack(push, 1)
@@ -72,15 +66,16 @@ template <> struct packet<packet_type::static_string> : packet_base {
   size_t extra_size() const { return size_; }
 };
 
-template <> struct packet<packet_type::thread_name> : packet_base {
-  thread_id tid_;
+template <> struct packet<packet_type::stack> : packet_base {
+  uint64_t begin_;
+  uint64_t end_;
   uint16_t name_size_;
 
   static constexpr bool has_dynamic_size = true;
   size_t extra_size() const { return name_size_; }
 };
 
-template <> struct packet<packet_type::counter_track> : packet_base {
+template <> struct packet<packet_type::thread_name> : packet_base {
   thread_id tid_;
   uint16_t name_size_;
 
@@ -97,43 +92,44 @@ template <> struct packet<packet_type::location> : static_packet_base {
 };
 
 template <> struct packet<packet_type::zone_start> : static_packet_base {
+  uint64_t stack_ptr_;
   thread_id tid_;
   timestamp_t timestamp_;
   uint64_t location_id_;
 };
 template <> struct packet<packet_type::zone_end> : static_packet_base {
-  thread_id tid_;
+  uint64_t stack_ptr_;
   timestamp_t timestamp_;
 };
 template <> struct packet<packet_type::zone_dynamic_name> : packet_base {
-  thread_id tid_;
+  uint64_t stack_ptr_;
   uint16_t name_size_;
 
   static constexpr bool has_dynamic_size = true;
   size_t extra_size() const { return name_size_; }
 };
 template <> struct packet<packet_type::zone_param_bool> : static_packet_base {
-  thread_id tid_;
+  uint64_t stack_ptr_;
   uint64_t static_name_;
   uint8_t value_;
 };
 template <> struct packet<packet_type::zone_param_int> : static_packet_base {
-  thread_id tid_;
+  uint64_t stack_ptr_;
   uint64_t static_name_;
   int64_t value_;
 };
 template <> struct packet<packet_type::zone_param_uint> : static_packet_base {
-  thread_id tid_;
+  uint64_t stack_ptr_;
   uint64_t static_name_;
   uint64_t value_;
 };
 template <> struct packet<packet_type::zone_param_double> : static_packet_base {
-  thread_id tid_;
+  uint64_t stack_ptr_;
   uint64_t static_name_;
   double value_;
 };
 template <> struct packet<packet_type::zone_param_string> : packet_base {
-  thread_id tid_;
+  uint64_t stack_ptr_;
   uint64_t static_name_;
   uint16_t value_size_;
 
@@ -141,14 +137,25 @@ template <> struct packet<packet_type::zone_param_string> : packet_base {
   size_t extra_size() const { return value_size_; }
 };
 template <> struct packet<packet_type::zone_flow> : static_packet_base {
-  thread_id tid_;
+  uint64_t stack_ptr_;
+  uint64_t flow_id_;
+};
+template <> struct packet<packet_type::zone_flow_terminate> : static_packet_base {
+  uint64_t stack_ptr_;
   uint64_t flow_id_;
 };
 template <> struct packet<packet_type::zone_category> : static_packet_base {
-  thread_id tid_;
+  uint64_t stack_ptr_;
   uint64_t static_name_;
 };
 
+template <> struct packet<packet_type::counter_track> : packet_base {
+  thread_id tid_;
+  uint16_t name_size_;
+
+  static constexpr bool has_dynamic_size = true;
+  size_t extra_size() const { return name_size_; }
+};
 template <> struct packet<packet_type::counter_value_int> : static_packet_base {
   thread_id tid_;
   timestamp_t timestamp_;
@@ -158,38 +165,6 @@ template <> struct packet<packet_type::counter_value_double> : static_packet_bas
   thread_id tid_;
   timestamp_t timestamp_;
   double value_;
-};
-
-template <> struct packet<packet_type::thread_switch_start> : static_packet_base {
-  thread_id tid_;
-  uint64_t switch_id_;
-};
-template <> struct packet<packet_type::thread_switch_end> : static_packet_base {
-  thread_id tid_;
-  timestamp_t timestamp_;
-  uint64_t switch_id_;
-};
-
-template <> struct packet<packet_type::spawn> : static_packet_base {
-  uint64_t spawn_id_;
-  thread_id tid_;
-  timestamp_t timestamp_;
-  uint8_t num_threads;
-};
-template <> struct packet<packet_type::spawn_continue> : static_packet_base {
-  uint64_t spawn_id_;
-  thread_id tid_;
-  timestamp_t timestamp_;
-};
-template <> struct packet<packet_type::spawn_ending> : static_packet_base {
-  uint64_t spawn_id_;
-  thread_id tid_;
-  timestamp_t timestamp_;
-};
-template <> struct packet<packet_type::spawn_done> : static_packet_base {
-  uint64_t spawn_id_;
-  thread_id tid_;
-  timestamp_t timestamp_;
 };
 
 template <packet_type PT> size_t typed_packet_size(const packet_base* pckt) {
@@ -204,8 +179,8 @@ size_t packet_size(const packet_base* pckt) {
   case packet_type::init:                   return typed_packet_size<packet_type::init>(pckt);
   case packet_type::static_string:          return typed_packet_size<packet_type::static_string>(pckt);
   case packet_type::location:               return typed_packet_size<packet_type::location>(pckt);
+  case packet_type::stack:                  return typed_packet_size<packet_type::stack>(pckt);
   case packet_type::thread_name:            return typed_packet_size<packet_type::thread_name>(pckt);
-  case packet_type::counter_track:          return typed_packet_size<packet_type::counter_track>(pckt);
   case packet_type::zone_start:             return typed_packet_size<packet_type::zone_start>(pckt);
   case packet_type::zone_end:               return typed_packet_size<packet_type::zone_end>(pckt);
   case packet_type::zone_dynamic_name:      return typed_packet_size<packet_type::zone_dynamic_name>(pckt);
@@ -215,15 +190,11 @@ size_t packet_size(const packet_base* pckt) {
   case packet_type::zone_param_double:      return typed_packet_size<packet_type::zone_param_double>(pckt);
   case packet_type::zone_param_string:      return typed_packet_size<packet_type::zone_param_string>(pckt);
   case packet_type::zone_flow:              return typed_packet_size<packet_type::zone_flow>(pckt);
+  case packet_type::zone_flow_terminate:    return typed_packet_size<packet_type::zone_flow_terminate>(pckt);
   case packet_type::zone_category:          return typed_packet_size<packet_type::zone_category>(pckt);
+  case packet_type::counter_track:          return typed_packet_size<packet_type::counter_track>(pckt);
   case packet_type::counter_value_int:      return typed_packet_size<packet_type::counter_value_int>(pckt);
   case packet_type::counter_value_double:   return typed_packet_size<packet_type::counter_value_double>(pckt);
-  case packet_type::thread_switch_start:    return typed_packet_size<packet_type::thread_switch_start>(pckt);
-  case packet_type::thread_switch_end:      return typed_packet_size<packet_type::thread_switch_end>(pckt);
-  case packet_type::spawn:                  return typed_packet_size<packet_type::spawn>(pckt);
-  case packet_type::spawn_continue:         return typed_packet_size<packet_type::spawn_continue>(pckt);
-  case packet_type::spawn_ending:           return typed_packet_size<packet_type::spawn_ending>(pckt);
-  case packet_type::spawn_done:             return typed_packet_size<packet_type::spawn_done>(pckt);
   }
   // clang-format on
 }
@@ -514,12 +485,21 @@ thread_id get_current_thread() {
   static_assert(sizeof(tid) <= sizeof(thread_id), "std::thread::id doesn't fit in thread_id");
   return *reinterpret_cast<thread_id*>(&tid);
 }
-timestamp_t get_time() {
+timestamp_t now() {
   auto t = std::chrono::steady_clock::now().time_since_epoch();
   auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t).count();
   return static_cast<timestamp_t>(now_ns);
 }
 
+void define_stack(const void* begin, const void* end, const char* name) {
+  auto& buffer = detail::Profiler::instance().buffer();
+  auto p = buffer.acquire_packet_dynamic<detail::packet_type::stack>(strlen(name));
+  p->begin_ = reinterpret_cast<uint64_t>(begin);
+  p->end_ = reinterpret_cast<uint64_t>(end);
+  p->name_size_ = strlen(name);
+  memcpy(to_uint8_ptr(p) + sizeof(*p), name, p->name_size_);
+  commit(p);
+}
 void set_thread_name(thread_id tid, const char* name) {
   auto& buffer = detail::Profiler::instance().buffer();
   auto p = buffer.acquire_packet_dynamic<detail::packet_type::thread_name>(strlen(name));
@@ -528,6 +508,95 @@ void set_thread_name(thread_id tid, const char* name) {
   memcpy(to_uint8_ptr(p) + sizeof(*p), name, p->name_size_);
   commit(p);
 }
+
+void emit_zone_start(const void* stack_ptr, thread_id tid, timestamp_t timestamp,
+                     const location* static_location) {
+  auto& buffer = detail::Profiler::instance().buffer();
+  auto p = buffer.acquire_packet_static<detail::packet_type::zone_start>();
+  p->stack_ptr_ = reinterpret_cast<uint64_t>(stack_ptr);
+  p->tid_ = tid;
+  p->timestamp_ = timestamp;
+  p->location_id_ = reinterpret_cast<uint64_t>(static_location);
+  commit(p);
+}
+void emit_zone_end(const void* stack_ptr, timestamp_t timestamp) {
+  auto& buffer = detail::Profiler::instance().buffer();
+  auto p = buffer.acquire_packet_static<detail::packet_type::zone_end>();
+  p->stack_ptr_ = reinterpret_cast<uint64_t>(stack_ptr);
+  p->timestamp_ = timestamp;
+  commit(p);
+}
+void emit_zone_dynamic_name(const void* stack_ptr, const char* dyn_name) {
+  auto& buffer = detail::Profiler::instance().buffer();
+  auto p = buffer.acquire_packet_dynamic<detail::packet_type::zone_dynamic_name>(strlen(dyn_name));
+  p->stack_ptr_ = reinterpret_cast<uint64_t>(stack_ptr);
+  p->name_size_ = strlen(dyn_name);
+  memcpy(to_uint8_ptr(p) + sizeof(*p), dyn_name, p->name_size_);
+  commit(p);
+}
+void emit_zone_param(const void* stack_ptr, const char* static_name, bool value) {
+  auto& buffer = detail::Profiler::instance().buffer();
+  auto p = buffer.acquire_packet_static<detail::packet_type::zone_param_bool>();
+  p->stack_ptr_ = reinterpret_cast<uint64_t>(stack_ptr);
+  p->static_name_ = reinterpret_cast<uint64_t>(static_name);
+  p->value_ = value;
+  commit(p);
+}
+void emit_zone_param(const void* stack_ptr, const char* static_name, int64_t value) {
+  auto& buffer = detail::Profiler::instance().buffer();
+  auto p = buffer.acquire_packet_static<detail::packet_type::zone_param_int>();
+  p->stack_ptr_ = reinterpret_cast<uint64_t>(stack_ptr);
+  p->static_name_ = reinterpret_cast<uint64_t>(static_name);
+  p->value_ = value;
+  commit(p);
+}
+void emit_zone_param(const void* stack_ptr, const char* static_name, uint64_t value) {
+  auto& buffer = detail::Profiler::instance().buffer();
+  auto p = buffer.acquire_packet_static<detail::packet_type::zone_param_uint>();
+  p->stack_ptr_ = reinterpret_cast<uint64_t>(stack_ptr);
+  p->static_name_ = reinterpret_cast<uint64_t>(static_name);
+  p->value_ = value;
+  commit(p);
+}
+void emit_zone_param(const void* stack_ptr, const char* static_name, double value) {
+  auto& buffer = detail::Profiler::instance().buffer();
+  auto p = buffer.acquire_packet_static<detail::packet_type::zone_param_double>();
+  p->stack_ptr_ = reinterpret_cast<uint64_t>(stack_ptr);
+  p->static_name_ = reinterpret_cast<uint64_t>(static_name);
+  p->value_ = value;
+  commit(p);
+}
+void emit_zone_param(const void* stack_ptr, const char* static_name, const char* dyn_value) {
+  auto& buffer = detail::Profiler::instance().buffer();
+  auto p = buffer.acquire_packet_dynamic<detail::packet_type::zone_param_string>(strlen(dyn_value));
+  p->stack_ptr_ = reinterpret_cast<uint64_t>(stack_ptr);
+  p->static_name_ = reinterpret_cast<uint64_t>(static_name);
+  p->value_size_ = strlen(dyn_value);
+  memcpy(to_uint8_ptr(p) + sizeof(*p), dyn_value, p->value_size_);
+  commit(p);
+}
+void emit_zone_flow(const void* stack_ptr, uint64_t flow_id) {
+  auto& buffer = detail::Profiler::instance().buffer();
+  auto p = buffer.acquire_packet_static<detail::packet_type::zone_flow>();
+  p->stack_ptr_ = reinterpret_cast<uint64_t>(stack_ptr);
+  p->flow_id_ = flow_id;
+  commit(p);
+}
+void emit_zone_flow_terminate(const void* stack_ptr, uint64_t flow_id) {
+  auto& buffer = detail::Profiler::instance().buffer();
+  auto p = buffer.acquire_packet_static<detail::packet_type::zone_flow_terminate>();
+  p->stack_ptr_ = reinterpret_cast<uint64_t>(stack_ptr);
+  p->flow_id_ = flow_id;
+  commit(p);
+}
+void emit_zone_category(const void* stack_ptr, const char* static_name) {
+  auto& buffer = detail::Profiler::instance().buffer();
+  auto p = buffer.acquire_packet_static<detail::packet_type::zone_category>();
+  p->stack_ptr_ = reinterpret_cast<uint64_t>(stack_ptr);
+  p->static_name_ = reinterpret_cast<uint64_t>(static_name);
+  commit(p);
+}
+
 void define_counter_track(uint64_t tid, const char* name) {
   auto& buffer = detail::Profiler::instance().buffer();
   auto p = buffer.acquire_packet_dynamic<detail::packet_type::counter_track>(strlen(name));
@@ -536,86 +605,6 @@ void define_counter_track(uint64_t tid, const char* name) {
   memcpy(to_uint8_ptr(p) + sizeof(*p), name, p->name_size_);
   commit(p);
 }
-
-void emit_zone_start(thread_id tid, timestamp_t timestamp, const location* static_location) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::zone_start>();
-  p->tid_ = tid;
-  p->timestamp_ = timestamp;
-  p->location_id_ = reinterpret_cast<uint64_t>(static_location);
-  commit(p);
-}
-void emit_zone_end(thread_id tid, timestamp_t timestamp) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::zone_end>();
-  p->tid_ = tid;
-  p->timestamp_ = timestamp;
-  commit(p);
-}
-void emit_zone_dynamic_name(thread_id tid, const char* dyn_name) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_dynamic<detail::packet_type::zone_dynamic_name>(strlen(dyn_name));
-  p->tid_ = tid;
-  p->name_size_ = strlen(dyn_name);
-  memcpy(to_uint8_ptr(p) + sizeof(*p), dyn_name, p->name_size_);
-  commit(p);
-}
-void emit_zone_param(thread_id tid, const char* static_name, bool value) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::zone_param_bool>();
-  p->tid_ = tid;
-  p->static_name_ = reinterpret_cast<uint64_t>(static_name);
-  p->value_ = value;
-  commit(p);
-}
-void emit_zone_param(thread_id tid, const char* static_name, int64_t value) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::zone_param_int>();
-  p->tid_ = tid;
-  p->static_name_ = reinterpret_cast<uint64_t>(static_name);
-  p->value_ = value;
-  commit(p);
-}
-void emit_zone_param(thread_id tid, const char* static_name, uint64_t value) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::zone_param_uint>();
-  p->tid_ = tid;
-  p->static_name_ = reinterpret_cast<uint64_t>(static_name);
-  p->value_ = value;
-  commit(p);
-}
-void emit_zone_param(thread_id tid, const char* static_name, double value) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::zone_param_double>();
-  p->tid_ = tid;
-  p->static_name_ = reinterpret_cast<uint64_t>(static_name);
-  p->value_ = value;
-  commit(p);
-}
-void emit_zone_param(thread_id tid, const char* static_name, const char* dyn_value) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_dynamic<detail::packet_type::zone_param_string>(strlen(dyn_value));
-  p->tid_ = tid;
-  p->static_name_ = reinterpret_cast<uint64_t>(static_name);
-  p->value_size_ = strlen(dyn_value);
-  memcpy(to_uint8_ptr(p) + sizeof(*p), dyn_value, p->value_size_);
-  commit(p);
-}
-void emit_zone_flow(thread_id tid, uint64_t flow_id) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::zone_flow>();
-  p->tid_ = tid;
-  p->flow_id_ = flow_id;
-  commit(p);
-}
-void emit_zone_category(thread_id tid, const char* static_name) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::zone_category>();
-  p->tid_ = tid;
-  p->static_name_ = reinterpret_cast<uint64_t>(static_name);
-  commit(p);
-}
-
 void emit_counter_value(thread_id tid, timestamp_t timestamp, int64_t value) {
   auto& buffer = detail::Profiler::instance().buffer();
   auto p = buffer.acquire_packet_static<detail::packet_type::counter_value_int>();
@@ -630,56 +619,6 @@ void emit_counter_value(thread_id tid, timestamp_t timestamp, double value) {
   p->tid_ = tid;
   p->timestamp_ = timestamp;
   p->value_ = value;
-  commit(p);
-}
-
-void emit_thread_switch_start(thread_id tid, uint64_t switch_id) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::thread_switch_start>();
-  p->tid_ = tid;
-  p->switch_id_ = switch_id;
-  commit(p);
-}
-void emit_thread_switch_end(thread_id tid, timestamp_t timestamp, uint64_t switch_id) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::thread_switch_end>();
-  p->tid_ = tid;
-  p->timestamp_ = timestamp;
-  p->switch_id_ = switch_id;
-  commit(p);
-}
-
-void emit_spawn(uint64_t spawn_id, thread_id tid, timestamp_t timestamp, uint8_t num_threads) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::spawn>();
-  p->spawn_id_ = spawn_id;
-  p->tid_ = tid;
-  p->timestamp_ = timestamp;
-  p->num_threads = num_threads;
-  commit(p);
-}
-void emit_spawn_continue(uint64_t spawn_id, thread_id tid, timestamp_t timestamp) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::spawn_continue>();
-  p->spawn_id_ = spawn_id;
-  p->tid_ = tid;
-  p->timestamp_ = timestamp;
-  commit(p);
-}
-void emit_spawn_ending(uint64_t spawn_id, thread_id tid, timestamp_t timestamp) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::spawn_ending>();
-  p->spawn_id_ = spawn_id;
-  p->tid_ = tid;
-  p->timestamp_ = timestamp;
-  commit(p);
-}
-void emit_spawn_done(uint64_t spawn_id, thread_id tid, timestamp_t timestamp) {
-  auto& buffer = detail::Profiler::instance().buffer();
-  auto p = buffer.acquire_packet_static<detail::packet_type::spawn_done>();
-  p->spawn_id_ = spawn_id;
-  p->tid_ = tid;
-  p->timestamp_ = timestamp;
   commit(p);
 }
 
