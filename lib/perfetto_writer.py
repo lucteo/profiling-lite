@@ -40,6 +40,7 @@ class PerfettoWriter:
         packet.track_descriptor.uuid = p.track_uuid
         packet.track_descriptor.name = p.name
         packet.track_descriptor.process.pid = p.pid
+        packet.track_descriptor.process.process_name = p.name
 
     def add_thread(self, t: dto.Thread):
         """Adds a thread track to the trace."""

@@ -73,14 +73,13 @@ def parse_to_trace(parse_items):
         else:
             raise ValueError(f"Unknown object {item}")
 
-    tracks = stacks.zone_tracks()
-    tracks.extend([t.zones_track() for t in threads.values()])
-
     # Wrap everything in a Trace object
     trace = dto.Trace()
-    trace.process_tracks.append(dto.ProcessTrack(pid=0, name="Process"))
-    trace.process_tracks[0].subtracks = tracks
+    trace.process_tracks.append(dto.ProcessTrack(pid=0, name="Stacks and zones"))
+    trace.process_tracks[0].subtracks = stacks.zone_tracks()
     trace.process_tracks[0].counter_tracks.extend(counter_tracks.values())
+    trace.process_tracks.append(dto.ProcessTrack(pid=1, name="Threads"))
+    trace.process_tracks[1].subtracks = [t.zones_track() for t in threads.values()]
     return trace
 
 
@@ -126,6 +125,7 @@ class _StackData:
 
     def __init__(self, begin, end, name=None):
         assert begin < end
+        end = _round_up_to_page_size(end)
         self.end = end
         self._lowest_seen = end
         self._begin = begin
@@ -152,6 +152,10 @@ class _StackData:
 
     def name(self):
         return self.zones_track.name
+
+
+def _round_up_to_page_size(x):
+    return (x + 4095) & ~4095
 
 
 class _ThreadData:
@@ -181,14 +185,21 @@ class _ThreadData:
         for timestamp, stack in self.stacks_usage:
             if stack == last_stack:
                 continue
-            r.zones.append(
-                dto.Zone(
-                    start=last_timestamp,
-                    end=timestamp,
-                    loc=None,
-                    name=last_stack.name(),
-                )
-            )
+            r.zones.append(_thread_zone(last_timestamp, timestamp, last_stack.name()))
             last_timestamp = timestamp
             last_stack = stack
+        timestamp_end = self.stacks_usage[-1][0]
+        if timestamp_end != last_timestamp:
+            r.zones.append(
+                _thread_zone(last_timestamp, timestamp_end, last_stack.name())
+            )
         return r
+
+
+def _thread_zone(start, end, name):
+    return dto.Zone(
+        start=start,
+        end=end,
+        loc=None,
+        name=name,
+    )

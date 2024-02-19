@@ -47,7 +47,7 @@ def _emit_zones(writer, zones, track_uuid):
     zones_to_end = []
     for zone in zones:
         # Emit all zone ends that are before the start of this zone.
-        while zones_to_end and zones_to_end[0] < zone.start:
+        while zones_to_end and zones_to_end[0] <= zone.start:
             writer.add(
                 emit_dto.ZoneEnd(track_uuid=track_uuid, timestamp=zones_to_end[0])
             )
