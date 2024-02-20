@@ -1,4 +1,3 @@
-import lib.dto as dto
 import lib.emit_dto as emit_dto
 
 
@@ -12,7 +11,7 @@ def emit_trace(trace, writer):
         for zones_track in process_track.subtracks:
             thread_uuid = next(uuid_gen)
             _emit_thread_track(writer, zones_track, thread_uuid, process_track.pid)
-            _emit_thread_zones(writer, zones_track.zones, thread_uuid)
+            _emit_zones(writer, zones_track.zones, thread_uuid)
 
         for counter_track in process_track.counter_tracks:
             counter_uuid = next(uuid_gen)
@@ -44,8 +43,32 @@ def _emit_thread_track(writer, zones_track, track_uuid, pid):
     writer.add(thread)
 
 
-def _emit_thread_zones(writer, zones, track_uuid):
+def _emit_zones(writer, zones, track_uuid):
+    zones_to_end = []
     for zone in zones:
+        # Emit all zone ends that are before the start of this zone.
+        while zones_to_end and zones_to_end[0] <= zone.start:
+            writer.add(
+                emit_dto.ZoneEnd(track_uuid=track_uuid, timestamp=zones_to_end[0])
+            )
+            del zones_to_end[0]
+
+        # Is this an instant zone?
+        if zone.start == zone.end or zone.end == 0:
+            zone_instant = emit_dto.ZoneInstant(
+                track_uuid=track_uuid,
+                timestamp=zone.start,
+                loc=_cvt_location(zone.loc),
+                name=zone.name,
+                params=zone.params,
+                flows=zone.flows,
+                flows_terminating=zone.flows_terminating,
+                categories=zone.categories,
+            )
+            writer.add(zone_instant)
+            continue
+
+        # Emit this zone start.
         zone_start = emit_dto.ZoneStart(
             track_uuid=track_uuid,
             timestamp=zone.start,
@@ -53,14 +76,21 @@ def _emit_thread_zones(writer, zones, track_uuid):
             name=zone.name,
             params=zone.params,
             flows=zone.flows,
+            flows_terminating=zone.flows_terminating,
             categories=zone.categories,
         )
         writer.add(zone_start)
 
-        zone_end = emit_dto.ZoneEnd(
-            track_uuid=track_uuid, timestamp=zone.end, flows=zone.flows
-        )
-        writer.add(zone_end)
+        if zone.end == zone.start:
+            # Also emit the zone end.
+            writer.add(emit_dto.ZoneEnd(track_uuid=track_uuid, timestamp=zone.end))
+        else:
+            # Keep track of the zone end.
+            zones_to_end.insert(0, zone.end)
+
+    # Emit remaining zone ends.
+    for end in zones_to_end:
+        writer.add(emit_dto.ZoneEnd(track_uuid=track_uuid, timestamp=end))
 
 
 def _emit_counter_track(writer, counter_track, track_uuid, process_uuid):

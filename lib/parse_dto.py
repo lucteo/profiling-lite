@@ -2,19 +2,20 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class Stack:
+    """Describes a stack under which we can execute code."""
+
+    begin: int
+    end: int
+    name: str
+
+
+@dataclass
 class Thread:
     """Describes a thread in a profiling trace."""
 
     tid: int
     thread_name: str
-
-
-@dataclass
-class CounterTrack:
-    """Describes a track for counter."""
-
-    tid: int
-    name: str
 
 
 @dataclass
@@ -32,6 +33,7 @@ class Location:
 class ZoneStart:
     """Describes the start of an execution zone."""
 
+    stack_ptr: int
     tid: int
     timestamp: int
     locid: int
@@ -41,7 +43,7 @@ class ZoneStart:
 class ZoneEnd:
     """Describes the start of an execution zone."""
 
-    tid: int
+    stack_ptr: int
     timestamp: int
 
 
@@ -49,7 +51,7 @@ class ZoneEnd:
 class ZoneName:
     """Describes a dynamic name given to an execution zone."""
 
-    tid: int
+    stack_ptr: int
     name: str
 
 
@@ -57,7 +59,15 @@ class ZoneName:
 class ZoneFlow:
     """Describes a flow ID associated with an execution zone."""
 
-    tid: int
+    stack_ptr: int
+    flowid: int
+
+
+@dataclass
+class ZoneFlowTerminate:
+    """Describes a flow ID associated with an execution zone; the flow terminates after the zone."""
+
+    stack_ptr: int
     flowid: int
 
 
@@ -65,7 +75,7 @@ class ZoneFlow:
 class ZoneCategory:
     """Describes a category associated with execution zone."""
 
-    tid: int
+    stack_ptr: int
     category_name: str
 
 
@@ -73,9 +83,17 @@ class ZoneCategory:
 class ZoneParam:
     """Describes a parameter for a zone."""
 
-    tid: int
+    stack_ptr: int
     name: str
     value: str | bool | int | float
+
+
+@dataclass
+class CounterTrack:
+    """Describes a track for counter."""
+
+    tid: int
+    name: str
 
 
 @dataclass
@@ -85,49 +103,3 @@ class CounterValue:
     tid: int
     timestamp: int
     value: int | float
-
-
-@dataclass
-class ThreadSwitchStart:
-    """Describes the start of a potential thread switch."""
-
-    tid: int
-    id: int
-
-
-@dataclass
-class ThreadSwitchEnd:
-    """Describes the end of a potential thread switch."""
-
-    tid: int
-    timestamp: int
-    id: int
-
-
-@dataclass
-class Spawn:
-    spawn_id: int
-    tid: int
-    timestamp: int
-    num_threads: int
-
-
-@dataclass
-class SpawnContinue:
-    spawn_id: int
-    tid: int
-    timestamp: int
-
-
-@dataclass
-class SpawnEnding:
-    spawn_id: int
-    tid: int
-    timestamp: int
-
-
-@dataclass
-class SpawnDone:
-    spawn_id: int
-    tid: int
-    timestamp: int

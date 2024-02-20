@@ -16,13 +16,13 @@ class Location:
 class Zone:
     """Describes an execution zone."""
 
-    tid: int
     start: int
     end: int
     loc: Location
     name: str
     params: dict = field(default_factory=dict)
     flows: list[int] = field(default_factory=list)
+    flows_terminating: list[int] = field(default_factory=list)
     categories: list[str] = field(default_factory=list)
 
 

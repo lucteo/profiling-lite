@@ -15,7 +15,6 @@ class PerfettoWriter:
 
     def add(self, item):
         """Add an emit dto object to the trace."""
-        print(item)
         if isinstance(item, dto.ProcessTrack):
             self.add_process_track(item)
         elif isinstance(item, dto.Thread):
@@ -24,6 +23,8 @@ class PerfettoWriter:
             self.add_counter_track(item)
         elif isinstance(item, dto.Location):
             self.add_location(item)
+        elif isinstance(item, dto.ZoneInstant):
+            self.add_zone_start(item, pb2.TrackEvent.Type.TYPE_INSTANT)
         elif isinstance(item, dto.ZoneStart):
             self.add_zone_start(item)
         elif isinstance(item, dto.ZoneEnd):
@@ -39,13 +40,14 @@ class PerfettoWriter:
         packet.track_descriptor.uuid = p.track_uuid
         packet.track_descriptor.name = p.name
         packet.track_descriptor.process.pid = p.pid
+        packet.track_descriptor.process.process_name = p.name
 
     def add_thread(self, t: dto.Thread):
         """Adds a thread track to the trace."""
         packet = self._trace.packet.add()
         packet.track_descriptor.uuid = t.track_uuid
-        packet.track_descriptor.thread.pid = t.pid
-        packet.track_descriptor.thread.tid = t.tid
+        packet.track_descriptor.thread.pid = t.pid & 0x7FFFFFFF
+        packet.track_descriptor.thread.tid = t.tid & 0x7FFFFFFF
         packet.track_descriptor.thread.thread_name = t.thread_name
 
     def add_counter_track(self, t: dto.CounterTrack):
@@ -66,12 +68,14 @@ class PerfettoWriter:
         location.function_name = l.function_name
         location.line_number = l.line_number
 
-    def add_zone_start(self, z: dto.ZoneStart):
-        """Adds a zone start event to the trace."""
+    def add_zone_start(
+        self, z: dto.ZoneStart, type=pb2.TrackEvent.Type.TYPE_SLICE_BEGIN
+    ):
+        """Adds a zone start event (or instant zone event) to the trace."""
         packet = self._trace.packet.add()
         packet.timestamp = z.timestamp
         packet.trusted_packet_sequence_id = 0
-        packet.track_event.type = pb2.TrackEvent.Type.TYPE_SLICE_BEGIN
+        packet.track_event.type = type
         packet.track_event.track_uuid = z.track_uuid
         packet.track_event.name = z.name
         if z.loc:
@@ -85,9 +89,18 @@ class PerfettoWriter:
             for k, v in z.params.items():
                 entry = annotation.dict_entries.add()
                 entry.name = k
-                entry.string_value = v
+                if isinstance(v, bool):
+                    entry.bool_value = v
+                elif isinstance(v, int):
+                    entry.int_value = v
+                elif isinstance(v, float):
+                    entry.double_value = v
+                else:
+                    entry.string_value = v
         for id in z.flows:
             packet.track_event.flow_ids.append(id)
+        for id in z.flows_terminating:
+            packet.track_event.terminating_flow_ids.append(id)
         for category in z.categories:
             packet.track_event.categories.append(category)
 
@@ -98,8 +111,6 @@ class PerfettoWriter:
         packet.trusted_packet_sequence_id = 0
         packet.track_event.type = pb2.TrackEvent.Type.TYPE_SLICE_END
         packet.track_event.track_uuid = z.track_uuid
-        for id in z.flows:
-            packet.track_event.flow_ids.append(id)
 
     def add_counter_value(self, v: dto.CounterValue):
         """Adds a counter value to the trace."""

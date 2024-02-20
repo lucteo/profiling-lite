@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+import bisect
 import lib.parse_dto as parse_dto
 import lib.dto as dto
 
@@ -6,17 +6,29 @@ import lib.dto as dto
 def parse_to_trace(parse_items):
     """Converts the parse items to a trace."""
 
+    stacks = _Stacks()
     threads = {}  # tid -> _ThreadData
     counter_tracks = {}
     locations = {}
-    spawns = {}  # spawn_id -> _SpawnData
-    thread_switch_data = _ThreadSwitchData()
+    open_zones = {}  # stack_ptr -> _ZoneData
+
+    def _thread(tid):
+        if tid not in threads:
+            threads[tid] = _ThreadData(tid, "Unknown")
+        return threads[tid]
+
+    def _get_stack_and_correlate_with_thread(tid, stack_ptr, timestamp):
+        stack = _thread(tid).last_stack()
+        if not stack or not stack.contains(stack_ptr):
+            stack = stacks.stack_for_ptr(stack_ptr)
+        _thread(tid).mark_stack(stack, timestamp)
+        return stack
 
     for item in parse_items:
-        if isinstance(item, parse_dto.Thread):
+        if isinstance(item, parse_dto.Stack):
+            stacks.add_stack(_StackData(item.begin, item.end, item.name))
+        elif isinstance(item, parse_dto.Thread):
             threads[item.tid] = _ThreadData(item.tid, item.thread_name)
-        elif isinstance(item, parse_dto.CounterTrack):
-            counter_tracks[item.tid] = dto.CounterTrack(item.name)
 
         elif isinstance(item, parse_dto.Location):
             locations[item.locid] = dto.Location(
@@ -29,196 +41,165 @@ def parse_to_trace(parse_items):
 
         elif isinstance(item, parse_dto.ZoneStart):
             loc = locations[item.locid]
-            threads[item.tid].add_zone_start(item.timestamp, loc)
-        elif isinstance(item, parse_dto.ZoneEnd):
-            threads[item.tid].add_zone_end(item.timestamp)
-        elif isinstance(item, parse_dto.ZoneName):
-            threads[item.tid].current_zone().name = item.name
-        elif isinstance(item, parse_dto.ZoneFlow):
-            threads[item.tid].current_zone().flows.append(item.flowid)
-        elif isinstance(item, parse_dto.ZoneCategory):
-            threads[item.tid].current_zone().categories.append(item.category_name)
-        elif isinstance(item, parse_dto.ZoneParam):
-            threads[item.tid].current_zone().params[item.name] = item.value
+            zone = dto.Zone(start=item.timestamp, end=0, loc=loc, name=loc.name)
+            open_zones[item.stack_ptr] = zone
 
+            # Check the stack and the thread of the zone
+            stack = _get_stack_and_correlate_with_thread(
+                item.tid, item.stack_ptr, item.timestamp
+            )
+            stack.add_zone(zone)
+
+        elif isinstance(item, parse_dto.ZoneEnd):
+            zone = open_zones.pop(item.stack_ptr)
+            zone.end = item.timestamp
+        elif isinstance(item, parse_dto.ZoneName):
+            open_zones[item.stack_ptr].name = item.name
+        elif isinstance(item, parse_dto.ZoneFlow):
+            open_zones[item.stack_ptr].flows.append(item.flowid)
+        elif isinstance(item, parse_dto.ZoneFlowTerminate):
+            open_zones[item.stack_ptr].flows_terminating.append(item.flowid)
+        elif isinstance(item, parse_dto.ZoneCategory):
+            open_zones[item.stack_ptr].categories.append(item.category_name)
+        elif isinstance(item, parse_dto.ZoneParam):
+            open_zones[item.stack_ptr].params[item.name] = item.value
+
+        elif isinstance(item, parse_dto.CounterTrack):
+            counter_tracks[item.tid] = dto.CounterTrack(item.name)
         elif isinstance(item, parse_dto.CounterValue):
             counter_value = dto.CounterValue(timestamp=item.timestamp, value=item.value)
             counter_tracks[item.tid].values.append(counter_value)
 
-        elif isinstance(item, parse_dto.ThreadSwitchStart):
-            thread_switch_data.start_thread_switch(item.id, item.tid)
-        elif isinstance(item, parse_dto.ThreadSwitchEnd):
-            thread_switch_data.finish_thread_switch(item.id, item.tid, item.timestamp)
-
-        elif isinstance(item, parse_dto.Spawn):
-            spawns[item.spawn_id] = _SpawnData(
-                item.spawn_id, threads[item.tid], item.timestamp, item.num_threads
-            )
-        elif isinstance(item, parse_dto.SpawnContinue):
-            spawns[item.spawn_id].thread_joining(threads[item.tid], item.timestamp)
-        elif isinstance(item, parse_dto.SpawnEnding):
-            spawns[item.spawn_id].thread_leaving(threads[item.tid], item.timestamp)
-        elif isinstance(item, parse_dto.SpawnDone):
-            spawns[item.spawn_id].done(threads[item.tid], item.timestamp)
-
         else:
             raise ValueError(f"Unknown object {item}")
 
-    # Generate thread switch tracks
-    extra_tracks = thread_switch_data.generate_thread_switch_tracks(threads)
-
     # Wrap everything in a Trace object
     trace = dto.Trace()
-    trace.process_tracks.append(dto.ProcessTrack(pid=0, name="Process"))
-    trace.process_tracks[0].subtracks = [t.zones_track for t in threads.values()]
-    trace.process_tracks[0].subtracks.extend(extra_tracks)
+    trace.process_tracks.append(dto.ProcessTrack(pid=0, name="Stacks and zones"))
+    trace.process_tracks[0].subtracks = stacks.zone_tracks()
     trace.process_tracks[0].counter_tracks.extend(counter_tracks.values())
+    trace.process_tracks.append(dto.ProcessTrack(pid=1, name="Threads"))
+    trace.process_tracks[1].subtracks = [t.zones_track() for t in threads.values()]
     return trace
 
 
+class _Stacks:
+    """Keeps track of the stacks we are using in this trace."""
+
+    def __init__(self):
+        self._stacks = []
+
+    def add_stack(self, stack):
+        """Adds an user-specified stack to the list of stacks."""
+        bisect.insort_left(self._stacks, stack, key=lambda x: x.end)
+
+    def stack_for_ptr(self, ptr):
+        """Get the stack for the given pointer, creating a new one if necessary."""
+        stack = self._existing_stack_containing(ptr)
+        if stack:
+            return stack
+
+        # No stack found, create an implicit one
+        stack = _StackData(begin=0, end=ptr)
+        self.add_stack(stack)
+        return stack
+
+    def _existing_stack_containing(self, ptr):
+        """Check if we have an existing stack that contains `ptr`, and, if so, return it."""
+        idx = bisect.bisect_left(self._stacks, ptr, key=lambda x: x.end)
+        if idx >= len(self._stacks):
+            return None
+        stack = self._stacks[idx]
+        if stack.contains(ptr):
+            return stack
+        else:
+            return None
+
+    def zone_tracks(self):
+        """Yields the zones tracks for all the stacks."""
+        return [s.zones_track for s in self._stacks]
+
+
+class _StackData:
+    """Describes a stack, the zones added to it and its usage."""
+
+    def __init__(self, begin, end, name=None):
+        assert begin < end
+        end = _round_up_to_page_size(end)
+        self.end = end
+        self._lowest_seen = end
+        self._begin = begin
+        self._used = []  # (timestamp, used_bytes)
+        if not name:
+            name = f"Stack @{end}"
+        self.zones_track = dto.ZonesTrack(tid=end, name=name)
+
+    def contains(self, ptr):
+        """Check if the stack contains the given pointer."""
+        lo = self._begin if self._begin > 0 else self._lowest_seen - 10 * 1024
+        return ptr >= lo and ptr <= self.end
+
+    def add_zone(self, zone):
+        """Adds a zone to the stack."""
+        self.zones_track.zones.append(zone)
+        self._mark_usage(zone.start, zone.end)
+
+    def _mark_usage(self, stack_ptr, timestamp):
+        """Mark the usage of `stack_ptr` inside this stack."""
+        self._used = (timestamp, self.end - stack_ptr)
+        if stack_ptr < self._lowest_seen:
+            self._lowest_seen = stack_ptr
+
+    def name(self):
+        return self.zones_track.name
+
+
+def _round_up_to_page_size(x):
+    return (x + 4095) & ~4095
+
+
 class _ThreadData:
+    """Describes a thread, how it executes code that correspond to various stacks."""
+
     def __init__(self, tid, name):
         self.tid = tid
         self.name = name
-        self.zones_track = dto.ZonesTrack(tid=tid, name=name)
-        self.open_zones = []
+        self.stacks_usage = []  # (timestamp, stack)
 
-    def add_zone_start(self, timestamp, loc):
-        zone = dto.Zone(self.tid, timestamp, 0, loc, loc.name)
-        self.open_zones.append(zone)
-        self.zones_track.zones.append(zone)
+    def last_stack(self):
+        """Returns the last stack used by the thread."""
+        return self.stacks_usage[-1][1] if self.stacks_usage else None
 
-    def add_zone_end(self, timestamp):
-        self.current_zone().end = timestamp
-        self.open_zones.pop()
+    def mark_stack(self, stack, timestamp):
+        """Marks the usage of a stack by the thread."""
+        self.stacks_usage.append((timestamp, stack))
 
-    def add_open_zone(self, zone):
-        self.open_zones.append(zone)
-        self.zones_track.zones.append(zone)
+    def zones_track(self):
+        """Yields a zones track corresponding to which stacks are actively used by the thread"""
+        if not self.stacks_usage:
+            return None
 
-    def add_closed_zone(self, zone):
-        self.zones_track.zones.append(zone)
-
-    def current_zone(self):
-        return self.open_zones[-1]
-
-
-class _ThreadSwitchData:
-    def __init__(self):
-        self._started = {}
-        self._switches = []
-
-    def start_thread_switch(self, id, tid):
-        self._started[id] = tid
-
-    def finish_thread_switch(self, id, tid, timestamp):
-        start_tid = self._started.pop(id)
-        if start_tid != tid:
-            self._switches.append((start_tid, tid, timestamp))
-
-    def generate_thread_switch_tracks(self, threads):
-        if not self._switches:
-            return []
-
-        new_tid = 1
-        r = []
-        for t in threads.values():
-            t2 = _ThreadData(new_tid, f"Thread switches: {t.name}")
-            new_tid += 1
-
-            min_timestamp = t.zones_track.zones[0].start
-            max_timestamp = max([z.end for z in t.zones_track.zones])
-
-            last_timestamp = min_timestamp
-            last_tid = t.tid
-            for timestamp, tid in self._switches_for_thread(t.tid):
-                t2.add_closed_zone(
-                    _create_thread_zone(
-                        t2.tid, last_timestamp, timestamp, threads[last_tid].name
-                    )
-                )
-                last_timestamp = timestamp
-                last_tid = tid
-
-            if last_timestamp < max_timestamp:
-                t2.add_closed_zone(
-                    _create_thread_zone(
-                        t2.tid, last_timestamp, max_timestamp, threads[last_tid].name
-                    )
-                )
-
-            r.append(t2.zones_track)
+        r = dto.ZonesTrack(tid=self.tid, name=self.name)
+        last_timestamp = self.stacks_usage[0][0]
+        last_stack = self.stacks_usage[0][1]
+        for timestamp, stack in self.stacks_usage:
+            if stack == last_stack:
+                continue
+            r.zones.append(_thread_zone(last_timestamp, timestamp, last_stack.name()))
+            last_timestamp = timestamp
+            last_stack = stack
+        timestamp_end = self.stacks_usage[-1][0]
+        if timestamp_end != last_timestamp:
+            r.zones.append(
+                _thread_zone(last_timestamp, timestamp_end, last_stack.name())
+            )
         return r
 
-    def _switches_for_thread(self, tid):
-        for s in self._switches:
-            if s[0] == tid:
-                yield (s[2], s[1])
-            if s[1] == tid:
-                yield (s[2], s[0])
 
-
-class _SpawnData:
-    def __init__(self, spawn_id, starting_thread, timestamp, num_threads):
-        self.spawn_id = spawn_id
-        self.previous_zones = []
-        self.num_threads = num_threads
-
-        starting_thread.add_closed_zone(
-            _create_spawn_zone(starting_thread.tid, timestamp, "Spawn", spawn_id)
-        )
-        self.previous_zones = _split_open_zones(starting_thread, timestamp)
-
-    def thread_joining(self, thread, timestamp):
-        thread.add_closed_zone(
-            _create_spawn_zone(thread.tid, timestamp, "Spawn continue", self.spawn_id)
-        )
-
-    def thread_leaving(self, thread, timestamp):
-        thread.add_closed_zone(
-            _create_spawn_zone(
-                thread.tid, timestamp, "Spawn finishing", self.spawn_id + 1
-            )
-        )
-
-    def done(self, thread, timestamp):
-        # Continue the previous zones
-        for zone in self.previous_zones:
-            thread.add_open_zone(zone)
-        thread.add_closed_zone(
-            _create_spawn_zone(thread.tid, timestamp, "Spawn done", self.spawn_id + 1)
-        )
-
-
-def _split_open_zones(from_thread, timestamp):
-    """Ends all the open zones in `from_thread` and return new corresponding zones starting with `timestamp`."""
-    res = []
-    for zone in from_thread.open_zones:
-        zone2 = _clone_zone(zone)
-        zone.end = timestamp
-        zone2.start = timestamp
-        res.append(zone2)
-    return res
-
-
-def _clone_zone(zone):
+def _thread_zone(start, end, name):
     return dto.Zone(
-        zone.tid,
-        zone.start,
-        zone.end,
-        zone.loc,
-        zone.name,
-        zone.params.copy(),
-        zone.flows.copy(),
-        zone.categories.copy(),
+        start=start,
+        end=end,
+        loc=None,
+        name=name,
     )
-
-
-def _create_spawn_zone(tid, timestamp, name, flow_id):
-    return dto.Zone(
-        tid, timestamp, timestamp, None, name, flows=[flow_id], categories=["spawn"]
-    )
-
-
-def _create_thread_zone(tid, start, end, name):
-    return dto.Zone(tid, start, end, None, name)

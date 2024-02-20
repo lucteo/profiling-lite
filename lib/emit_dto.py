@@ -40,16 +40,16 @@ class Location:
 
 
 @dataclass
-class Zone:
-    """Describes an execution zone."""
+class ZoneInstant:
+    """Describes an instant execution zone."""
 
     track_uuid: int
-    start: int
-    end: int
+    timestamp: int
     loc: Location
     name: str
     params: dict = field(default_factory=dict)
     flows: list[int] = field(default_factory=list)
+    flows_terminating: list[int] = field(default_factory=list)
     categories: list[str] = field(default_factory=list)
 
 
@@ -63,6 +63,7 @@ class ZoneStart:
     name: str
     params: dict = field(default_factory=dict)
     flows: list[int] = field(default_factory=list)
+    flows_terminating: list[int] = field(default_factory=list)
     categories: list[str] = field(default_factory=list)
 
 
@@ -72,7 +73,6 @@ class ZoneEnd:
 
     track_uuid: int
     timestamp: int
-    flows: list[int] = field(default_factory=list)
 
 
 @dataclass
