@@ -126,6 +126,12 @@ class _ZoneDynamicNamePacket:
         self.stack_ptr, size = _read_and_unpack("QH", f)
         self.name = f.read(size).decode("utf-8")
 
+    def dependencies(self):
+        return []
+
+    def provides(self):
+        return []
+
 
 class _ZoneParamBoolPacket:
     def __init__(self, f):
@@ -220,6 +226,12 @@ class _CounterTrackPacket:
     def __init__(self, f):
         self.tid, size = _read_and_unpack("QH", f)
         self.track_name = f.read(size).decode("utf-8")
+
+    def dependencies(self):
+        return []
+
+    def provides(self):
+        return []
 
 
 class _CounterValueIntPacket:
@@ -398,6 +410,8 @@ def _packets_to_dtos(packets):
             )
         elif isinstance(packet, _ZoneEndPacket):
             yield dto.ZoneEnd(stack_ptr=packet.stack_ptr, timestamp=packet.timestamp)
+        elif isinstance(packet, _ZoneDynamicNamePacket):
+            yield dto.ZoneName(stack_ptr=packet.stack_ptr, name=packet.name)
         elif isinstance(packet, _ZoneParamBoolPacket):
             yield dto.ZoneParam(
                 stack_ptr=packet.stack_ptr,

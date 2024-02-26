@@ -22,9 +22,12 @@ def main():
     args = parser.parse_args()
 
     parse_items = parse_bin_trace(args.filename)
+    print("parsing...")
     trace = parse_to_trace(parse_items)
     writer = PerfettoWriter()
+    print("emitting...")
     emit_trace(trace, writer)
+    print("writing...")
     writer.write(args.out)
 
 

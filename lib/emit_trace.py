@@ -54,7 +54,7 @@ def _emit_zones(writer, zones, track_uuid):
             del zones_to_end[0]
 
         # Is this an instant zone?
-        if zone.start == zone.end or zone.end == 0:
+        if zone.start == zone.end:
             zone_instant = emit_dto.ZoneInstant(
                 track_uuid=track_uuid,
                 timestamp=zone.start,

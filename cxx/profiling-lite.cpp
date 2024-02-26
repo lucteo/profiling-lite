@@ -6,6 +6,12 @@
 #include <thread>
 #include <unordered_set>
 
+#include <sstream>
+
+#if defined(__linux__) || defined(__APPLE__)
+#include <signal.h>
+#endif
+
 namespace profiling_lite {
 
 namespace detail {
@@ -341,7 +347,43 @@ private:
     p->version_ = 1;
     commit(p);
 
+    setup_crash_handler();
+
     writer_thread_ = std::thread(&Profiler::thread_func, this);
+  }
+
+  void setup_crash_handler() {
+#if defined(__linux__) || defined(__APPLE__)
+    struct sigaction sa = {};
+    sa.sa_sigaction = handle_crash;
+    sa.sa_flags = SA_SIGINFO;
+    sigaction(SIGILL, &sa, nullptr);
+    sigaction(SIGFPE, &sa, nullptr);
+    sigaction(SIGSEGV, &sa, nullptr);
+    sigaction(SIGPIPE, &sa, nullptr);
+    sigaction(SIGBUS, &sa, nullptr);
+    sigaction(SIGABRT, &sa, nullptr);
+#endif
+  }
+
+  static std::string current_thread() {
+    std::stringstream ss;
+    ss << std::this_thread::get_id();
+    return ss.str();
+  }
+
+  static void handle_crash(int signal, siginfo_t* info, void* /*ucontext*/) {
+    emit_zone_start(&signal, get_current_thread(), now(),
+                    PROFILING_LITE_CURRENT_LOCATION_N("CRASHED"));
+    emit_zone_param(&signal, "signal", static_cast<int64_t>(signal));
+    printf("%s: CRASHED\n", current_thread().c_str());
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    emit_zone_end(&signal, now());
+    // Wait for a bit, giving the chance for out thread to write the profile data.
+    printf("quitting...\n");
+    Profiler::instance().should_exit_ = true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    std::abort();
   }
 
   void thread_func() {
@@ -378,6 +420,7 @@ private:
     }
     // Actually write the buffer to the file.
     write_buffer_to_file(f, r.begin_, r.size_in_bytes());
+    fflush(f);
     // Clear up the buffer, so that we can reuse it.
     r.clear();
   }
