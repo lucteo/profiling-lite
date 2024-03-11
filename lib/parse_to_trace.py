@@ -1,6 +1,7 @@
 import bisect
 import lib.parse_dto as parse_dto
 import lib.dto as dto
+import lib.emit_dto as emit_dto
 
 
 def parse_to_trace(parse_items):
@@ -217,4 +218,110 @@ def _thread_zone(start, end, name):
         end=end,
         loc=None,
         name=name,
+    )
+
+
+def emit_trace(trace, writer):
+    """Emits the trace items to the writer in the appropriate order."""
+    for obj in _generate_emit_dtos(trace):
+        writer.add(obj)
+
+
+def _generate_emit_dtos(trace):
+    uuid_gen = _track_uuid_gen()
+    for process_track in trace.process_tracks:
+        process_uuid = next(uuid_gen)
+        yield emit_dto.ProcessTrack(
+            track_uuid=process_uuid, pid=process_track.pid, name=process_track.name
+        )
+
+        for zones_track in process_track.subtracks:
+            thread_uuid = next(uuid_gen)
+            yield emit_dto.Thread(
+                track_uuid=thread_uuid,
+                pid=process_track.pid,
+                tid=zones_track.tid,
+                thread_name=zones_track.name,
+            )
+
+            yield from _emit_zones(zones_track.zones, thread_uuid)
+
+        for counter_track in process_track.counter_tracks:
+            counter_uuid = next(uuid_gen)
+            yield emit_dto.CounterTrack(
+                track_uuid=counter_uuid,
+                parent_track=process_uuid,
+                name=counter_track.name,
+            )
+            for value in counter_track.values:
+                yield emit_dto.CounterValue(
+                    track_uuid=counter_uuid,
+                    timestamp=value.timestamp,
+                    value=value.value,
+                )
+
+
+def _track_uuid_gen():
+    track_uuid = 0
+    while True:
+        yield track_uuid
+        track_uuid += 1
+
+
+def _emit_zones(zones, track_uuid):
+    zones_to_end = []
+    for zone in zones:
+        # Emit all zone ends that are before the start of this zone.
+        while zones_to_end and zones_to_end[0] <= zone.start:
+            yield emit_dto.ZoneEnd(track_uuid=track_uuid, timestamp=zones_to_end[0])
+            del zones_to_end[0]
+
+        # Is this an instant zone?
+        if zone.start == zone.end:
+            zone_instant = emit_dto.ZoneInstant(
+                track_uuid=track_uuid,
+                timestamp=zone.start,
+                loc=_cvt_location(zone.loc),
+                name=zone.name,
+                params=zone.params,
+                flows=zone.flows,
+                flows_terminating=zone.flows_terminating,
+                categories=zone.categories,
+            )
+            yield zone_instant
+            continue
+
+        # Emit this zone start.
+        zone_start = emit_dto.ZoneStart(
+            track_uuid=track_uuid,
+            timestamp=zone.start,
+            loc=_cvt_location(zone.loc),
+            name=zone.name,
+            params=zone.params,
+            flows=zone.flows,
+            flows_terminating=zone.flows_terminating,
+            categories=zone.categories,
+        )
+        yield zone_start
+
+        if zone.end == zone.start:
+            # Also emit the zone end.
+            yield emit_dto.ZoneEnd(track_uuid=track_uuid, timestamp=zone.end)
+        else:
+            # Keep track of the zone end.
+            zones_to_end.insert(0, zone.end)
+
+    # Emit remaining zone ends.
+    for end in zones_to_end:
+        yield emit_dto.ZoneEnd(track_uuid=track_uuid, timestamp=end)
+
+
+def _cvt_location(obj):
+    if obj is None:
+        return None
+    return emit_dto.Location(
+        locid=obj.locid,
+        function_name=obj.function_name,
+        file_name=obj.file_name,
+        line_number=obj.line_number,
     )
