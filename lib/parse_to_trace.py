@@ -26,7 +26,7 @@ def parse_to_trace(parse_items):
 
     for item in parse_items:
         if isinstance(item, parse_dto.Stack):
-            stacks.add_stack(_StackData(item.begin, item.end, item.name))
+            stacks.add_stack(end=item.end, begin=item.begin, name=item.name)
         elif isinstance(item, parse_dto.Thread):
             threads[item.tid] = _ThreadData(item.tid, item.thread_name)
 
@@ -89,9 +89,17 @@ class _Stacks:
     def __init__(self):
         self._stacks = []
 
-    def add_stack(self, stack):
+    def add_stack(self, end, begin=0, name=None):
         """Adds an user-specified stack to the list of stacks."""
-        bisect.insort_left(self._stacks, stack, key=lambda x: x.end)
+        # First, check if don't already have the stack
+        stack = self._existing_stack_containing(end)
+        if stack:
+            # Stack found; try updating information.
+            stack.update(begin, name)
+        else:
+            # No stack found, create one
+            stack = _StackData(end, begin, name)
+            bisect.insort_left(self._stacks, stack, key=lambda x: x.end)
 
     def stack_for_ptr(self, ptr):
         """Get the stack for the given pointer, creating a new one if necessary."""
@@ -100,7 +108,7 @@ class _Stacks:
             return stack
 
         # No stack found, create an implicit one
-        stack = _StackData(begin=0, end=ptr)
+        stack = _StackData(end=ptr)
         self.add_stack(stack)
         return stack
 
@@ -123,7 +131,7 @@ class _Stacks:
 class _StackData:
     """Describes a stack, the zones added to it and its usage."""
 
-    def __init__(self, begin, end, name=None):
+    def __init__(self, end, begin=0, name=None):
         assert begin < end
         end = _round_up_to_page_size(end)
         self.end = end
@@ -143,6 +151,13 @@ class _StackData:
         """Adds a zone to the stack."""
         self.zones_track.zones.append(zone)
         self._mark_usage(zone.start, zone.end)
+
+    def update(self, begin, name):
+        """Update an existing stack with new information."""
+        if begin > 0:
+            self._begin = begin
+        if name and not self.zones_track.name:
+            self.zones_track.name = name
 
     def _mark_usage(self, stack_ptr, timestamp):
         """Mark the usage of `stack_ptr` inside this stack."""
