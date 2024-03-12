@@ -3,7 +3,7 @@
 import argparse
 from lib.perfetto_writer import PerfettoWriter
 from lib.parse_bin_trace import parse_bin_trace
-from lib.parse_to_trace import emit_trace
+from lib.emit_trace import emit_trace
 
 
 def main():
