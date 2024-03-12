@@ -10,12 +10,11 @@ def emit_trace(parse_items):
 
     # Emit the two process tracks
     track_emitter = _TrackEmitter()
-    uuid_gen = track_emitter._track_uuid_gen
     yield from track_emitter.emit_process_tracks()
 
     stacks = _Stacks()
     threads = {}  # tid -> _ThreadData
-    counter_tracks = {}
+    counter_tracks = {}  # tid -> track_uuid
     locations = {}
     open_zones = {}  # stack_ptr -> _ZoneData
 
@@ -72,34 +71,32 @@ def emit_trace(parse_items):
             open_zones[item.stack_ptr].params[item.name] = item.value
 
         elif isinstance(item, parse_dto.CounterTrack):
-            counter_tracks[item.tid] = dto.CounterTrack(item.name)
+            uuid = track_emitter.next_uuid()
+            yield track_emitter.counter_track(uuid, item.name)
+            counter_tracks[item.tid] = uuid
         elif isinstance(item, parse_dto.CounterValue):
-            counter_value = dto.CounterValue(timestamp=item.timestamp, value=item.value)
-            counter_tracks[item.tid].values.append(counter_value)
+            yield emit_dto.CounterValue(
+                track_uuid=counter_tracks[item.tid],
+                timestamp=item.timestamp,
+                value=item.value,
+            )
 
         else:
             raise ValueError(f"Unknown object {item}")
 
     # Stacks and zones tracks
     for zones_track in stacks.zone_tracks():
-        thread_uuid = track_emitter.next_uuid()
-        yield track_emitter.thread_track(thread_uuid, zones_track.tid, zones_track.name)
-        yield from _emit_zones(zones_track.zones, thread_uuid)
-
-    # Counter tracks
-    for counter_track in counter_tracks.values():
-        counter_uuid = track_emitter.next_uuid()
-        yield track_emitter.counter_track(counter_uuid, counter_track.name)
-        for value in counter_track.values:
-            yield _emit_counter_value(counter_uuid, value)
+        uuid = track_emitter.next_uuid()
+        yield track_emitter.stack_track(uuid, zones_track.name)
+        yield from _emit_zones(zones_track.zones, uuid)
 
     # Thread mapping tracks
     for zones_track in [t.zones_track() for t in threads.values()]:
-        thread_uuid = track_emitter.next_uuid()
-        yield track_emitter.thread_track(
-            thread_uuid, zones_track.tid, zones_track.name, in_stacks=False
+        uuid = track_emitter.next_uuid()
+        yield track_emitter.thread_mapping_track(
+            uuid, zones_track.tid, zones_track.name
         )
-        yield from _emit_zones(zones_track.zones, thread_uuid)
+        yield from _emit_zones(zones_track.zones, uuid)
 
 
 class _TrackEmitter:
@@ -121,13 +118,21 @@ class _TrackEmitter:
         """Generates the next track uuid."""
         return next(self._track_uuid_gen)
 
-    def thread_track(self, uuid, tid, name, in_stacks=True):
-        """Emits a thread track."""
-        pid = 0 if in_stacks else 1
+    def stack_track(self, uuid, name):
+        """Emits a track for representing zones over stacks."""
+        return emit_dto.Thread(
+            track_uuid=uuid,
+            tid=uuid,
+            pid=0,
+            thread_name=name,
+        )
+
+    def thread_mapping_track(self, uuid, tid, name):
+        """Emits a thread-mapping track."""
         return emit_dto.Thread(
             track_uuid=uuid,
             tid=tid,
-            pid=pid,
+            pid=1,
             thread_name=name,
         )
 
@@ -283,14 +288,6 @@ def _track_id_gen():
     while True:
         yield track_uuid
         track_uuid += 1
-
-
-def _emit_counter_value(uuid, counter_value):
-    return emit_dto.CounterValue(
-        track_uuid=uuid,
-        timestamp=counter_value.timestamp,
-        value=counter_value.value,
-    )
 
 
 def _emit_zones(zones, track_uuid):
