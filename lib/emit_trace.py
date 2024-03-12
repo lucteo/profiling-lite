@@ -1,5 +1,4 @@
 import bisect
-from dataclasses import dataclass
 import lib.parse_dto as parse_dto
 import lib.dto as dto
 import lib.emit_dto as emit_dto
@@ -51,7 +50,7 @@ def emit_trace(parse_items):
             stack = thread.last_stack()
             if not stack or not stack.contains(item.stack_ptr):
                 stack = stacks.stack_for_ptr(item.stack_ptr)
-            thread.mark_stack(stack, item.timestamp)
+            yield from thread.mark_stack(stack, item.timestamp)
 
             # Add the zone to the stack.
             stack.add_zone(zone)
@@ -90,9 +89,9 @@ def emit_trace(parse_items):
         yield track_emitter.stack_track(uuid, zones_track.name)
         yield from _emit_zones(zones_track.zones, uuid)
 
-    # Thread mapping tracks
+    # Close the thread mapping tracks
     for t in threads.values():
-        yield from _emit_zones(t.zones_track().zones, t.uuid)
+        yield from t.close()
 
 
 class _TrackEmitter:
@@ -236,45 +235,44 @@ class _ThreadData:
 
     def __init__(self, uuid):
         self.uuid = uuid
-        self.stacks_usage = []  # (timestamp, stack)
+        self._current_stack = None
+        self._last_switch_timestamp = None
+        self._last_timestamp = None
 
     def last_stack(self):
         """Returns the last stack used by the thread."""
-        return self.stacks_usage[-1][1] if self.stacks_usage else None
+        return self._current_stack
 
     def mark_stack(self, stack, timestamp):
         """Marks the usage of a stack by the thread."""
-        self.stacks_usage.append((timestamp, stack))
+        if not self._last_switch_timestamp:
+            self._last_switch_timestamp = timestamp
+            self._last_timestamp = timestamp
+            self._current_stack = stack
+            yield self._emit_zone_start(stack, timestamp)
+        elif self._current_stack != stack:
+            yield self._emit_zone_end(timestamp)
+            yield self._emit_zone_start(stack, timestamp)
+            self._last_switch_timestamp = timestamp
+            self._last_timestamp = timestamp
+            self._current_stack = stack
+        else:
+            self._last_timestamp = timestamp
 
-    def zones_track(self):
-        """Yields a zones track corresponding to which stacks are actively used by the thread"""
-        if not self.stacks_usage:
-            return None
+    def close(self):
+        if self._last_timestamp:
+            yield self._emit_zone_end(self._last_timestamp)
 
-        r = dto.ZonesTrack(tid=0, name="not used")
-        last_timestamp = self.stacks_usage[0][0]
-        last_stack = self.stacks_usage[0][1]
-        for timestamp, stack in self.stacks_usage:
-            if stack == last_stack:
-                continue
-            r.zones.append(_thread_zone(last_timestamp, timestamp, last_stack.name()))
-            last_timestamp = timestamp
-            last_stack = stack
-        timestamp_end = self.stacks_usage[-1][0]
-        if timestamp_end != last_timestamp:
-            r.zones.append(
-                _thread_zone(last_timestamp, timestamp_end, last_stack.name())
-            )
-        return r
+    def _emit_zone_start(self, stack, timestamp):
+        return emit_dto.ZoneStart(
+            track_uuid=self.uuid,
+            timestamp=timestamp,
+            loc=None,
+            name=stack.name(),
+        )
 
-
-def _thread_zone(start, end, name):
-    return dto.Zone(
-        start=start,
-        end=end,
-        loc=None,
-        name=name,
-    )
+    def _emit_zone_end(self, timestamp):
+        return emit_dto.ZoneEnd(track_uuid=self.uuid, timestamp=timestamp)
 
 
 def _track_id_gen():
