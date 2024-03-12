@@ -18,23 +18,13 @@ def emit_trace(parse_items):
     locations = {}
     open_zones = {}  # stack_ptr -> _ZoneData
 
-    def _thread(tid):
-        if tid not in threads:
-            threads[tid] = _ThreadData(tid, "Unknown")
-        return threads[tid]
-
-    def _get_stack_and_correlate_with_thread(tid, stack_ptr, timestamp):
-        stack = _thread(tid).last_stack()
-        if not stack or not stack.contains(stack_ptr):
-            stack = stacks.stack_for_ptr(stack_ptr)
-        _thread(tid).mark_stack(stack, timestamp)
-        return stack
-
     for item in parse_items:
         if isinstance(item, parse_dto.Stack):
             stacks.add_stack(end=item.end, begin=item.begin, name=item.name)
         elif isinstance(item, parse_dto.Thread):
-            threads[item.tid] = _ThreadData(item.tid, item.thread_name)
+            uuid = track_emitter.next_uuid()
+            yield track_emitter.thread_mapping_track(uuid, item.tid, item.thread_name)
+            threads[item.tid] = _ThreadData(uuid)
 
         elif isinstance(item, parse_dto.Location):
             locations[item.locid] = dto.Location(
@@ -46,14 +36,24 @@ def emit_trace(parse_items):
             )
 
         elif isinstance(item, parse_dto.ZoneStart):
+            # If this zone announces a new thread, ensure we add the thread.
+            if item.tid not in threads:
+                uuid = track_emitter.next_uuid()
+                yield track_emitter.thread_mapping_track(uuid, item.tid, "Unknown")
+                threads[item.tid] = _ThreadData(uuid)
+
             loc = locations[item.locid]
             zone = dto.Zone(start=item.timestamp, end=0, loc=loc, name=loc.name)
             open_zones[item.stack_ptr] = zone
 
             # Check the stack and the thread of the zone
-            stack = _get_stack_and_correlate_with_thread(
-                item.tid, item.stack_ptr, item.timestamp
-            )
+            thread = threads[item.tid]
+            stack = thread.last_stack()
+            if not stack or not stack.contains(item.stack_ptr):
+                stack = stacks.stack_for_ptr(item.stack_ptr)
+            thread.mark_stack(stack, item.timestamp)
+
+            # Add the zone to the stack.
             stack.add_zone(zone)
 
         elif isinstance(item, parse_dto.ZoneEnd):
@@ -91,12 +91,8 @@ def emit_trace(parse_items):
         yield from _emit_zones(zones_track.zones, uuid)
 
     # Thread mapping tracks
-    for zones_track in [t.zones_track() for t in threads.values()]:
-        uuid = track_emitter.next_uuid()
-        yield track_emitter.thread_mapping_track(
-            uuid, zones_track.tid, zones_track.name
-        )
-        yield from _emit_zones(zones_track.zones, uuid)
+    for t in threads.values():
+        yield from _emit_zones(t.zones_track().zones, t.uuid)
 
 
 class _TrackEmitter:
@@ -238,9 +234,8 @@ def _round_up_to_page_size(x):
 class _ThreadData:
     """Describes a thread, how it executes code that correspond to various stacks."""
 
-    def __init__(self, tid, name):
-        self.tid = tid
-        self.name = name
+    def __init__(self, uuid):
+        self.uuid = uuid
         self.stacks_usage = []  # (timestamp, stack)
 
     def last_stack(self):
@@ -256,7 +251,7 @@ class _ThreadData:
         if not self.stacks_usage:
             return None
 
-        r = dto.ZonesTrack(tid=self.tid, name=self.name)
+        r = dto.ZonesTrack(tid=0, name="not used")
         last_timestamp = self.stacks_usage[0][0]
         last_stack = self.stacks_usage[0][1]
         for timestamp, stack in self.stacks_usage:
