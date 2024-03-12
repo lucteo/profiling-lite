@@ -60,9 +60,3 @@ class ProcessTrack:
     subtracks: list[ZonesTrack] = field(default_factory=list)
     counter_tracks: list[CounterTrack] = field(default_factory=list)
 
-
-@dataclass
-class Trace:
-    """Describes a trace with multiple tracks."""
-
-    process_tracks: list[ProcessTrack] = field(default_factory=list)

@@ -1,4 +1,5 @@
 import bisect
+from dataclasses import dataclass
 import lib.parse_dto as parse_dto
 import lib.dto as dto
 import lib.emit_dto as emit_dto
@@ -6,12 +7,11 @@ import lib.emit_dto as emit_dto
 
 def emit_trace(parse_items):
     """Generates the emit DTO objects for the given parse items."""
-    trace = _parse_to_trace(parse_items)
-    yield from _generate_emit_dtos(trace)
 
-
-def _parse_to_trace(parse_items):
-    """Converts the parse items to a trace."""
+    # Emit the two process tracks
+    track_emitter = _TrackEmitter()
+    uuid_gen = track_emitter._track_uuid_gen
+    yield from track_emitter.emit_process_tracks()
 
     stacks = _Stacks()
     threads = {}  # tid -> _ThreadData
@@ -80,14 +80,64 @@ def _parse_to_trace(parse_items):
         else:
             raise ValueError(f"Unknown object {item}")
 
-    # Wrap everything in a Trace object
-    trace = dto.Trace()
-    trace.process_tracks.append(dto.ProcessTrack(pid=0, name="Stacks and zones"))
-    trace.process_tracks[0].subtracks = stacks.zone_tracks()
-    trace.process_tracks[0].counter_tracks.extend(counter_tracks.values())
-    trace.process_tracks.append(dto.ProcessTrack(pid=1, name="Threads"))
-    trace.process_tracks[1].subtracks = [t.zones_track() for t in threads.values()]
-    return trace
+    # Stacks and zones tracks
+    for zones_track in stacks.zone_tracks():
+        thread_uuid = track_emitter.next_uuid()
+        yield track_emitter.thread_track(thread_uuid, zones_track.tid, zones_track.name)
+        yield from _emit_zones(zones_track.zones, thread_uuid)
+
+    # Counter tracks
+    for counter_track in counter_tracks.values():
+        counter_uuid = track_emitter.next_uuid()
+        yield track_emitter.counter_track(counter_uuid, counter_track.name)
+        for value in counter_track.values:
+            yield _emit_counter_value(counter_uuid, value)
+
+    # Thread mapping tracks
+    for zones_track in [t.zones_track() for t in threads.values()]:
+        thread_uuid = track_emitter.next_uuid()
+        yield track_emitter.thread_track(
+            thread_uuid, zones_track.tid, zones_track.name, in_stacks=False
+        )
+        yield from _emit_zones(zones_track.zones, thread_uuid)
+
+
+class _TrackEmitter:
+    def __init__(self):
+        self._track_uuid_gen = _track_id_gen()
+        self.stacks_track_uuid = next(self._track_uuid_gen)
+        self.thread_mapping_track_uuid = next(self._track_uuid_gen)
+
+    def emit_process_tracks(self):
+        """Emits the process tracks for the entire capture."""
+        yield emit_dto.ProcessTrack(
+            track_uuid=self.stacks_track_uuid, pid=0, name="Stacks and zones"
+        )
+        yield emit_dto.ProcessTrack(
+            track_uuid=self.thread_mapping_track_uuid, pid=1, name="Threads mapping"
+        )
+
+    def next_uuid(self):
+        """Generates the next track uuid."""
+        return next(self._track_uuid_gen)
+
+    def thread_track(self, uuid, tid, name, in_stacks=True):
+        """Emits a thread track."""
+        pid = 0 if in_stacks else 1
+        return emit_dto.Thread(
+            track_uuid=uuid,
+            tid=tid,
+            pid=pid,
+            thread_name=name,
+        )
+
+    def counter_track(self, uuid, name):
+        """Emits a counter track."""
+        return emit_dto.CounterTrack(
+            track_uuid=uuid,
+            parent_track=self.thread_mapping_track_uuid,
+            name=name,
+        )
 
 
 class _Stacks:
@@ -227,45 +277,20 @@ def _thread_zone(start, end, name):
     )
 
 
-def _generate_emit_dtos(trace):
-    uuid_gen = _track_uuid_gen()
-    for process_track in trace.process_tracks:
-        process_uuid = next(uuid_gen)
-        yield emit_dto.ProcessTrack(
-            track_uuid=process_uuid, pid=process_track.pid, name=process_track.name
-        )
-
-        for zones_track in process_track.subtracks:
-            thread_uuid = next(uuid_gen)
-            yield emit_dto.Thread(
-                track_uuid=thread_uuid,
-                pid=process_track.pid,
-                tid=zones_track.tid,
-                thread_name=zones_track.name,
-            )
-
-            yield from _emit_zones(zones_track.zones, thread_uuid)
-
-        for counter_track in process_track.counter_tracks:
-            counter_uuid = next(uuid_gen)
-            yield emit_dto.CounterTrack(
-                track_uuid=counter_uuid,
-                parent_track=process_uuid,
-                name=counter_track.name,
-            )
-            for value in counter_track.values:
-                yield emit_dto.CounterValue(
-                    track_uuid=counter_uuid,
-                    timestamp=value.timestamp,
-                    value=value.value,
-                )
-
-
-def _track_uuid_gen():
+def _track_id_gen():
+    """Generates unique track ids."""
     track_uuid = 0
     while True:
         yield track_uuid
         track_uuid += 1
+
+
+def _emit_counter_value(uuid, counter_value):
+    return emit_dto.CounterValue(
+        track_uuid=uuid,
+        timestamp=counter_value.timestamp,
+        value=counter_value.value,
+    )
 
 
 def _emit_zones(zones, track_uuid):
