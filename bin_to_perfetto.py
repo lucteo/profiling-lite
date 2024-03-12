@@ -23,11 +23,10 @@ def main():
     parse_items = parse_bin_trace(args.filename)
     print("parsing...")
     trace = parse_to_trace(parse_items)
-    writer = PerfettoWriter()
+    writer = PerfettoWriter(args.out)
     print("emitting...")
     emit_trace(trace, writer)
-    print("writing...")
-    writer.write(args.out)
+    writer.close()
 
 
 if __name__ == "__main__":

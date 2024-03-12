@@ -5,13 +5,14 @@ import lib.emit_dto as dto
 class PerfettoWriter:
     """Knows how to write a perfetto trace file."""
 
-    def __init__(self):
+    def __init__(self, filename):
         self._trace = pb2.Trace()
+        self._filename = filename
+        self._f = open(filename, "wb")
 
-    def write(self, filename):
-        """Writes the trace to a file."""
-        with open(filename, "wb") as f:
-            f.write(self._trace.SerializeToString())
+    def close(self):
+        self._check_write_chunk()
+        self._f.close()
 
     def add(self, item):
         """Add an emit dto object to the trace."""
@@ -33,6 +34,7 @@ class PerfettoWriter:
             self.add_counter_value(item)
         else:
             raise ValueError(f"Unknown object {item}")
+        self._check_write_chunk()
 
     def add_process_track(self, p: dto.ProcessTrack):
         """Adds a thread track to the trace."""
@@ -123,3 +125,9 @@ class PerfettoWriter:
             packet.track_event.counter_value = v.value
         elif isinstance(v.value, float):
             packet.track_event.double_counter_value = v.value
+
+    def _check_write_chunk(self):
+        if len(self._trace.packet) > 100_000:
+            self._f.write(self._trace.SerializeToString())
+            self._f.flush()
+            self._trace = pb2.Trace()

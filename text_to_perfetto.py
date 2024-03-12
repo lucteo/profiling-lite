@@ -22,9 +22,9 @@ def main():
 
     parse_items = parse_text_trace(args.filename)
     trace = parse_to_trace(parse_items)
-    writer = PerfettoWriter()
+    writer = PerfettoWriter(args.out)
     emit_trace(trace, writer)
-    writer.write(args.out)
+    writer.close()
 
 
 if __name__ == "__main__":
