@@ -11,7 +11,7 @@ class PerfettoWriter:
         self._f = open(filename, "wb")
 
     def close(self):
-        self._check_write_chunk()
+        self._write_chunk()
         self._f.close()
 
     def add(self, item):
@@ -34,7 +34,10 @@ class PerfettoWriter:
             self.add_counter_value(item)
         else:
             raise ValueError(f"Unknown object {item}")
-        self._check_write_chunk()
+        
+        # Stream to the file, instead of accumulating in memory.
+        if len(self._trace.packet) > 100_000:
+            self._write_chunk()
 
     def add_process_track(self, p: dto.ProcessTrack):
         """Adds a thread track to the trace."""
@@ -126,8 +129,7 @@ class PerfettoWriter:
         elif isinstance(v.value, float):
             packet.track_event.double_counter_value = v.value
 
-    def _check_write_chunk(self):
-        if len(self._trace.packet) > 100_000:
-            self._f.write(self._trace.SerializeToString())
-            self._f.flush()
-            self._trace = pb2.Trace()
+    def _write_chunk(self):
+        self._f.write(self._trace.SerializeToString())
+        self._f.flush()
+        self._trace = pb2.Trace()
