@@ -3,7 +3,7 @@
 import argparse
 from lib.perfetto_writer import PerfettoWriter
 from lib.parse_text_trace import parse_text_trace
-from lib.parse_to_trace import parse_to_trace, emit_trace
+from lib.parse_to_trace import emit_trace
 
 
 def main():
@@ -21,9 +21,10 @@ def main():
     args = parser.parse_args()
 
     parse_items = parse_text_trace(args.filename)
-    trace = parse_to_trace(parse_items)
+    emit_dtos = emit_trace(parse_items)
     writer = PerfettoWriter(args.out)
-    emit_trace(trace, writer)
+    for obj in emit_dtos:
+        writer.add(obj)
     writer.close()
 
 

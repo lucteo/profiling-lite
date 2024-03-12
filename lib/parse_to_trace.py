@@ -4,7 +4,13 @@ import lib.dto as dto
 import lib.emit_dto as emit_dto
 
 
-def parse_to_trace(parse_items):
+def emit_trace(parse_items):
+    """Generates the emit DTO objects for the given parse items."""
+    trace = _parse_to_trace(parse_items)
+    yield from _generate_emit_dtos(trace)
+
+
+def _parse_to_trace(parse_items):
     """Converts the parse items to a trace."""
 
     stacks = _Stacks()
@@ -219,12 +225,6 @@ def _thread_zone(start, end, name):
         loc=None,
         name=name,
     )
-
-
-def emit_trace(trace, writer):
-    """Emits the trace items to the writer in the appropriate order."""
-    for obj in _generate_emit_dtos(trace):
-        writer.add(obj)
 
 
 def _generate_emit_dtos(trace):
