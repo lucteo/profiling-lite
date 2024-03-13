@@ -1,7 +1,7 @@
 import bisect
 import lib.parse_dto as parse_dto
-import lib.dto as dto
 import lib.emit_dto as emit_dto
+from dataclasses import dataclass, field
 
 
 def emit_trace(parse_items):
@@ -26,7 +26,7 @@ def emit_trace(parse_items):
             threads[item.tid] = _ThreadData(uuid)
 
         elif isinstance(item, parse_dto.Location):
-            locations[item.locid] = dto.Location(
+            locations[item.locid] = _Location(
                 item.locid,
                 item.name,
                 item.file_name,
@@ -42,7 +42,7 @@ def emit_trace(parse_items):
                 threads[item.tid] = _ThreadData(uuid)
 
             loc = locations[item.locid]
-            zone = dto.Zone(start=item.timestamp, end=0, loc=loc, name=loc.name)
+            zone = _Zone(start=item.timestamp, end=0, loc=loc, name=loc.name)
             open_zones[item.stack_ptr] = zone
 
             # Check the stack and the thread of the zone
@@ -197,7 +197,7 @@ class _StackData:
         self._used = []  # (timestamp, used_bytes)
         if not name:
             name = f"Stack @{end}"
-        self.zones_track = dto.ZonesTrack(tid=end, name=name)
+        self.zones_track = _ZonesTrack(tid=end, name=name)
 
     def contains(self, ptr):
         """Check if the stack contains the given pointer."""
@@ -340,3 +340,37 @@ def _cvt_location(obj):
         file_name=obj.file_name,
         line_number=obj.line_number,
     )
+
+
+@dataclass
+class _Location:
+    """Describes a location in the source code."""
+
+    locid: int
+    name: str
+    function_name: str
+    file_name: str
+    line_number: int
+
+
+@dataclass
+class _Zone:
+    """Describes an execution zone."""
+
+    start: int
+    end: int
+    loc: _Location
+    name: str
+    params: dict = field(default_factory=dict)
+    flows: list[int] = field(default_factory=list)
+    flows_terminating: list[int] = field(default_factory=list)
+    categories: list[str] = field(default_factory=list)
+
+
+@dataclass
+class _ZonesTrack:
+    """Describes a track for zones."""
+
+    tid: int
+    name: str
+    zones: list[_Zone] = field(default_factory=list)
