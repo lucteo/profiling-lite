@@ -1,5 +1,6 @@
 from enum import Enum, auto
 import struct
+import os
 import lib.parse_dto as dto
 
 
@@ -322,12 +323,25 @@ def _parse_next_packet(f):
 
 
 def _packet_generator(filename):
+    # Check the size of the file
+    file_size = os.stat(filename).st_size
+    show_progress = file_size > 1024 * 1024
+    if show_progress:
+        print(f"Processing {filename}: 0%", end="")
+    counter = 0
     with open(filename, "rb") as file:
         while True:
             p = _parse_next_packet(file)
             if not p:
                 break
             yield p
+            counter += 1
+            if show_progress and counter % 25_000 == 0:
+                cur_pos = file.tell()
+                print(f"\rProcessing {filename}: {int(100*cur_pos/file_size)}%", end="")
+    if show_progress:
+        print(f"\rProcessing {filename}: 100%")
+        print("Done.")
 
 
 def _ensure_ordering(packets):
