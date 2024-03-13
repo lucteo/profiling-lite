@@ -11,28 +11,30 @@ def emit_trace(parse_items):
     track_emitter = _TrackEmitter()
     yield from track_emitter.emit_process_tracks()
 
-    stacks = _Stacks()
+    stacks = _Stacks(track_emitter)
     threads = {}  # tid -> _ThreadData
     counter_tracks = {}  # tid -> track_uuid
-    locations = {}
+    locations = {}  # locid -> (emit_dto.Location, name)
     open_zones = {}  # stack_ptr -> _ZoneData
 
     for item in parse_items:
         if isinstance(item, parse_dto.Stack):
             stacks.add_stack(end=item.end, begin=item.begin, name=item.name)
+            yield from stacks.emit_pending_tracks()
         elif isinstance(item, parse_dto.Thread):
             uuid = track_emitter.next_uuid()
             yield track_emitter.thread_mapping_track(uuid, item.tid, item.thread_name)
             threads[item.tid] = _ThreadData(uuid)
 
         elif isinstance(item, parse_dto.Location):
-            locations[item.locid] = _Location(
-                item.locid,
-                item.name,
-                item.file_name,
-                item.function_name,
-                item.line_number,
+            loc = emit_dto.Location(
+                locid=item.locid,
+                function_name=item.function_name,
+                file_name=item.file_name,
+                line_number=item.line_number,
             )
+            locations[item.locid] = (loc, item.name)
+            yield loc
 
         elif isinstance(item, parse_dto.ZoneStart):
             # If this zone announces a new thread, ensure we add the thread.
@@ -41,8 +43,8 @@ def emit_trace(parse_items):
                 yield track_emitter.thread_mapping_track(uuid, item.tid, "Unknown")
                 threads[item.tid] = _ThreadData(uuid)
 
-            loc = locations[item.locid]
-            zone = _Zone(start=item.timestamp, end=0, loc=loc, name=loc.name)
+            loc_pair = locations[item.locid]
+            zone = _Zone(start=item.timestamp, end=0, loc=loc_pair[0], name=loc_pair[1])
             open_zones[item.stack_ptr] = zone
 
             # Check the stack and the thread of the zone
@@ -50,6 +52,7 @@ def emit_trace(parse_items):
             stack = thread.last_stack()
             if not stack or not stack.contains(item.stack_ptr):
                 stack = stacks.stack_for_ptr(item.stack_ptr)
+                yield from stacks.emit_pending_tracks()
             yield from thread.mark_stack(stack, item.timestamp)
 
             # Add the zone to the stack.
@@ -84,10 +87,8 @@ def emit_trace(parse_items):
             raise ValueError(f"Unknown object {item}")
 
     # Stacks and zones tracks
-    for zones_track in stacks.zone_tracks():
-        uuid = track_emitter.next_uuid()
-        yield track_emitter.stack_track(uuid, zones_track.name)
-        yield from _emit_zones(zones_track.zones, uuid)
+    for s in stacks._stacks:
+        yield from _emit_zones(s.zones_track.zones, s.uuid)
 
     # Close the thread mapping tracks
     for t in threads.values():
@@ -143,8 +144,10 @@ class _TrackEmitter:
 class _Stacks:
     """Keeps track of the stacks we are using in this trace."""
 
-    def __init__(self):
+    def __init__(self, track_emitter: _TrackEmitter):
         self._stacks = []
+        self._track_emitter = track_emitter
+        self._to_emit = []
 
     def add_stack(self, end, begin=0, name=None):
         """Adds an user-specified stack to the list of stacks."""
@@ -155,8 +158,7 @@ class _Stacks:
             stack.update(begin, name)
         else:
             # No stack found, create one
-            stack = _StackData(end, begin, name)
-            bisect.insort_left(self._stacks, stack, key=lambda x: x.end)
+            self._add_stack(end, begin, name)
 
     def stack_for_ptr(self, ptr):
         """Get the stack for the given pointer, creating a new one if necessary."""
@@ -165,9 +167,7 @@ class _Stacks:
             return stack
 
         # No stack found, create an implicit one
-        stack = _StackData(end=ptr)
-        self.add_stack(stack)
-        return stack
+        return self._add_stack(ptr, name=f"Stack @{ptr}")
 
     def _existing_stack_containing(self, ptr):
         """Check if we have an existing stack that contains `ptr`, and, if so, return it."""
@@ -180,18 +180,28 @@ class _Stacks:
         else:
             return None
 
-    def zone_tracks(self):
-        """Yields the zones tracks for all the stacks."""
-        return [s.zones_track for s in self._stacks]
+    def emit_pending_tracks(self):
+        """Yields the pending tracks objects."""
+        yield from self._to_emit
+        self._to_emit = []
+    
+    def _add_stack(self, end, begin=0, name=None):
+        """Adds a stack to the list of stacks."""
+        uuid = self._track_emitter.next_uuid()
+        stack = _StackData(uuid=uuid, end=end, begin=begin, name=name)
+        bisect.insort_left(self._stacks, stack, key=lambda x: x.end)
+        self._to_emit.append(self._track_emitter.stack_track(uuid, stack.name()))
+        return stack
 
 
 class _StackData:
     """Describes a stack, the zones added to it and its usage."""
 
-    def __init__(self, end, begin=0, name=None):
+    def __init__(self, uuid, end, begin=0, name=None):
         assert begin < end
         end = _round_up_to_page_size(end)
         self.end = end
+        self.uuid = uuid
         self._lowest_seen = end
         self._begin = begin
         self._used = []  # (timestamp, used_bytes)
@@ -343,23 +353,12 @@ def _cvt_location(obj):
 
 
 @dataclass
-class _Location:
-    """Describes a location in the source code."""
-
-    locid: int
-    name: str
-    function_name: str
-    file_name: str
-    line_number: int
-
-
-@dataclass
 class _Zone:
     """Describes an execution zone."""
 
     start: int
     end: int
-    loc: _Location
+    loc: emit_dto.Location
     name: str
     params: dict = field(default_factory=dict)
     flows: list[int] = field(default_factory=list)
