@@ -1,7 +1,6 @@
 import bisect
 import lib.parse_dto as parse_dto
 import lib.emit_dto as emit_dto
-from dataclasses import dataclass, field
 
 
 def emit_trace(parse_items):
@@ -15,7 +14,7 @@ def emit_trace(parse_items):
     threads = {}  # tid -> _ThreadData
     counter_tracks = {}  # tid -> track_uuid
     locations = {}  # locid -> (emit_dto.Location, name)
-    open_zones = {}  # stack_ptr -> _ZoneData
+    open_zones = {}  # stack_ptr -> _StackData
 
     for item in parse_items:
         if isinstance(item, parse_dto.Stack):
@@ -43,10 +42,6 @@ def emit_trace(parse_items):
                 yield track_emitter.thread_mapping_track(uuid, item.tid, "Unknown")
                 threads[item.tid] = _ThreadData(uuid)
 
-            loc_pair = locations[item.locid]
-            zone = _Zone(start=item.timestamp, end=0, loc=loc_pair[0], name=loc_pair[1])
-            open_zones[item.stack_ptr] = zone
-
             # Check the stack and the thread of the zone
             thread = threads[item.tid]
             stack = thread.last_stack()
@@ -56,21 +51,35 @@ def emit_trace(parse_items):
             yield from thread.mark_stack(stack, item.timestamp)
 
             # Add the zone to the stack.
-            stack.add_zone(zone)
+            loc_pair = locations[item.locid]
+            yield from stack.start_zone(
+                item.stack_ptr, item.timestamp, loc_pair[0], loc_pair[1]
+            )
+            open_zones[item.stack_ptr] = stack
 
         elif isinstance(item, parse_dto.ZoneEnd):
-            zone = open_zones.pop(item.stack_ptr)
-            zone.end = item.timestamp
+            stack = open_zones.pop(item.stack_ptr)
+            yield from stack.end_zone(item.timestamp)
         elif isinstance(item, parse_dto.ZoneName):
-            open_zones[item.stack_ptr].name = item.name
+            dto = open_zones[item.stack_ptr].open_zone_dto(item.stack_ptr)
+            if dto:
+                dto.name = item.name
         elif isinstance(item, parse_dto.ZoneFlow):
-            open_zones[item.stack_ptr].flows.append(item.flowid)
+            dto = open_zones[item.stack_ptr].open_zone_dto(item.stack_ptr)
+            if dto:
+                dto.flows.append(item.flowid)
         elif isinstance(item, parse_dto.ZoneFlowTerminate):
-            open_zones[item.stack_ptr].flows_terminating.append(item.flowid)
+            dto = open_zones[item.stack_ptr].open_zone_dto(item.stack_ptr)
+            if dto:
+                dto.flows_terminating.append(item.flowid)
         elif isinstance(item, parse_dto.ZoneCategory):
-            open_zones[item.stack_ptr].categories.append(item.category_name)
+            dto = open_zones[item.stack_ptr].open_zone_dto(item.stack_ptr)
+            if dto:
+                dto.categories.append(item.category_name)
         elif isinstance(item, parse_dto.ZoneParam):
-            open_zones[item.stack_ptr].params[item.name] = item.value
+            dto = open_zones[item.stack_ptr].open_zone_dto(item.stack_ptr)
+            if dto:
+                dto.params[item.name] = item.value
 
         elif isinstance(item, parse_dto.CounterTrack):
             uuid = track_emitter.next_uuid()
@@ -85,10 +94,6 @@ def emit_trace(parse_items):
 
         else:
             raise ValueError(f"Unknown object {item}")
-
-    # Stacks and zones tracks
-    for s in stacks._stacks:
-        yield from _emit_zones(s.zones_track.zones, s.uuid)
 
     # Close the thread mapping tracks
     for t in threads.values():
@@ -151,13 +156,8 @@ class _Stacks:
 
     def add_stack(self, end, begin=0, name=None):
         """Adds an user-specified stack to the list of stacks."""
-        # First, check if don't already have the stack
         stack = self._existing_stack_containing(end)
-        if stack:
-            # Stack found; try updating information.
-            stack.update(begin, name)
-        else:
-            # No stack found, create one
+        if not stack:
             self._add_stack(end, begin, name)
 
     def stack_for_ptr(self, ptr):
@@ -184,7 +184,7 @@ class _Stacks:
         """Yields the pending tracks objects."""
         yield from self._to_emit
         self._to_emit = []
-    
+
     def _add_stack(self, end, begin=0, name=None):
         """Adds a stack to the list of stacks."""
         uuid = self._track_emitter.next_uuid()
@@ -207,24 +207,40 @@ class _StackData:
         self._used = []  # (timestamp, used_bytes)
         if not name:
             name = f"Stack @{end}"
-        self.zones_track = _ZonesTrack(tid=end, name=name)
+        self._name = name
+        self._open_zone_ptr = None
+        self._open_zone_dto = None
 
     def contains(self, ptr):
         """Check if the stack contains the given pointer."""
         lo = self._begin if self._begin > 0 else self._lowest_seen - 10 * 1024
         return ptr >= lo and ptr <= self.end
 
-    def add_zone(self, zone):
-        """Adds a zone to the stack."""
-        self.zones_track.zones.append(zone)
-        self._mark_usage(zone.start, zone.end)
+    def start_zone(self, ptr, timestamp, loc, loc_name):
+        """Starts a zone in this stack."""
+        if self._open_zone_dto:
+            yield self._open_zone_dto
 
-    def update(self, begin, name):
-        """Update an existing stack with new information."""
-        if begin > 0:
-            self._begin = begin
-        if name and not self.zones_track.name:
-            self.zones_track.name = name
+        assert self.contains(ptr)
+        self._open_zone_ptr = ptr
+        self._open_zone_dto = emit_dto.ZoneStart(
+            track_uuid=self.uuid, timestamp=timestamp, loc=loc, name=loc_name
+        )
+        self._mark_usage(ptr, timestamp)
+
+    def end_zone(self, timestamp):
+        """Ends the current zone in this stack."""
+        if self._open_zone_dto:
+            yield self._open_zone_dto
+            self._open_zone_dto = None
+            self._open_zone_ptr = None
+        yield emit_dto.ZoneEnd(track_uuid=self.uuid, timestamp=timestamp)
+
+    def open_zone_dto(self, ptr):
+        """Returns the DTO object for the open zone, if the open zone is for `ptr`."""
+        if self._open_zone_ptr == ptr:
+            return self._open_zone_dto
+        return None
 
     def _mark_usage(self, stack_ptr, timestamp):
         """Mark the usage of `stack_ptr` inside this stack."""
@@ -233,7 +249,7 @@ class _StackData:
             self._lowest_seen = stack_ptr
 
     def name(self):
-        return self.zones_track.name
+        return self._name
 
 
 def _round_up_to_page_size(x):
@@ -291,85 +307,3 @@ def _track_id_gen():
     while True:
         yield track_uuid
         track_uuid += 1
-
-
-def _emit_zones(zones, track_uuid):
-    zones_to_end = []
-    for zone in zones:
-        # Emit all zone ends that are before the start of this zone.
-        while zones_to_end and zones_to_end[0] <= zone.start:
-            yield emit_dto.ZoneEnd(track_uuid=track_uuid, timestamp=zones_to_end[0])
-            del zones_to_end[0]
-
-        # Is this an instant zone?
-        if zone.start == zone.end:
-            zone_instant = emit_dto.ZoneInstant(
-                track_uuid=track_uuid,
-                timestamp=zone.start,
-                loc=_cvt_location(zone.loc),
-                name=zone.name,
-                params=zone.params,
-                flows=zone.flows,
-                flows_terminating=zone.flows_terminating,
-                categories=zone.categories,
-            )
-            yield zone_instant
-            continue
-
-        # Emit this zone start.
-        zone_start = emit_dto.ZoneStart(
-            track_uuid=track_uuid,
-            timestamp=zone.start,
-            loc=_cvt_location(zone.loc),
-            name=zone.name,
-            params=zone.params,
-            flows=zone.flows,
-            flows_terminating=zone.flows_terminating,
-            categories=zone.categories,
-        )
-        yield zone_start
-
-        if zone.end == zone.start:
-            # Also emit the zone end.
-            yield emit_dto.ZoneEnd(track_uuid=track_uuid, timestamp=zone.end)
-        else:
-            # Keep track of the zone end.
-            zones_to_end.insert(0, zone.end)
-
-    # Emit remaining zone ends.
-    for end in zones_to_end:
-        yield emit_dto.ZoneEnd(track_uuid=track_uuid, timestamp=end)
-
-
-def _cvt_location(obj):
-    if obj is None:
-        return None
-    return emit_dto.Location(
-        locid=obj.locid,
-        function_name=obj.function_name,
-        file_name=obj.file_name,
-        line_number=obj.line_number,
-    )
-
-
-@dataclass
-class _Zone:
-    """Describes an execution zone."""
-
-    start: int
-    end: int
-    loc: emit_dto.Location
-    name: str
-    params: dict = field(default_factory=dict)
-    flows: list[int] = field(default_factory=list)
-    flows_terminating: list[int] = field(default_factory=list)
-    categories: list[str] = field(default_factory=list)
-
-
-@dataclass
-class _ZonesTrack:
-    """Describes a track for zones."""
-
-    tid: int
-    name: str
-    zones: list[_Zone] = field(default_factory=list)
