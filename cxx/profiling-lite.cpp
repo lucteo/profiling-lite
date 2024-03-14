@@ -242,7 +242,7 @@ struct packets_range {
 class ring_buffer {
 public:
   ring_buffer(size_t size)
-      : size_(size), data_(new uint8_t[size]), packet_limit_(data_ + size - 1024) {
+      : data_(new uint8_t[size]), size_(size), packet_limit_(data_ + size - 1024) {
     memset(data_, 0, size);
     write_pos_ = data_;
     reading_pos_ = reinterpret_cast<packet_base*>(data_);
@@ -362,7 +362,7 @@ private:
     sigaction(SIGSEGV, &sa, nullptr);
     sigaction(SIGPIPE, &sa, nullptr);
     sigaction(SIGBUS, &sa, nullptr);
-    sigaction(SIGABRT, &sa, nullptr);
+    // sigaction(SIGABRT, &sa, nullptr);
 #endif
   }
 
@@ -513,6 +513,16 @@ private:
     return f;
   }
   void write_buffer_to_file(FILE* f, const void* data, size_t size) {
+    while (size > 0) {
+      auto to_write = std::min(size, size_t(1024*1024));
+      auto written = fwrite(data, 1, to_write, f);
+      if (written != to_write) {
+        printf("Failed to write to output capture file: capture.bin-trace\n");
+        std::terminate();
+      }
+      size -= written;
+      data = static_cast<const char*>(data) + written;
+    }
     auto written = fwrite(data, 1, size, f);
     if (written != size) {
       printf("Failed to write to output capture file: capture.bin-trace\n");

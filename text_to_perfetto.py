@@ -1,10 +1,9 @@
 #!env python3
 
 import argparse
-from lib.emit_trace import emit_trace
 from lib.perfetto_writer import PerfettoWriter
 from lib.parse_text_trace import parse_text_trace
-from lib.parse_to_trace import parse_to_trace
+from lib.emit_trace import emit_trace
 
 
 def main():
@@ -22,10 +21,11 @@ def main():
     args = parser.parse_args()
 
     parse_items = parse_text_trace(args.filename)
-    trace = parse_to_trace(parse_items)
-    writer = PerfettoWriter()
-    emit_trace(trace, writer)
-    writer.write(args.out)
+    emit_dtos = emit_trace(parse_items)
+    writer = PerfettoWriter(args.out)
+    for obj in emit_dtos:
+        writer.add(obj)
+    writer.close()
 
 
 if __name__ == "__main__":
