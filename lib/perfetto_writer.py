@@ -36,7 +36,7 @@ class PerfettoWriter:
             raise ValueError(f"Unknown object {item}")
         
         # Stream to the file, instead of accumulating in memory.
-        if len(self._trace.packet) > 100_000:
+        if len(self._trace.packet) > 100:
             self._write_chunk()
 
     def add_process_track(self, p: dto.ProcessTrack):
