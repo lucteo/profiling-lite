@@ -15,6 +15,7 @@ def emit_trace(parse_items):
     counter_tracks = {}  # tid -> track_uuid
     locations = {}  # locid -> (emit_dto.Location, name)
     open_zones = {}  # stack_ptr -> _StackData
+    stats = _StacksStats(track_emitter)
 
     for item in parse_items:
         if isinstance(item, parse_dto.Stack):
@@ -57,9 +58,15 @@ def emit_trace(parse_items):
             )
             open_zones[item.stack_ptr] = stack
 
+            # Update the stats
+            stats.on_start_zone(stack, item.stack_ptr, item.timestamp)
+            yield from stats.emit()
+
         elif isinstance(item, parse_dto.ZoneEnd):
             stack = open_zones.pop(item.stack_ptr)
             yield from stack.end_zone(item.timestamp)
+            stats.on_end_zone(stack, item.stack_ptr, item.timestamp)
+            yield from stats.emit()
         elif isinstance(item, parse_dto.ZoneName):
             dto = open_zones[item.stack_ptr].open_zone_dto(item.stack_ptr)
             if dto:
@@ -190,7 +197,7 @@ class _Stacks:
         uuid = self._track_emitter.next_uuid()
         stack = _StackData(uuid=uuid, end=end, begin=begin, name=name)
         bisect.insort_left(self._stacks, stack, key=lambda x: x.end)
-        self._to_emit.append(self._track_emitter.stack_track(uuid, stack.name()))
+        self._to_emit.append(self._track_emitter.stack_track(uuid, stack.name))
         return stack
 
 
@@ -210,6 +217,7 @@ class _StackData:
         self._name = name
         self._open_zone_ptr = None
         self._open_zone_dto = None
+        self._open_zones_count = 0
 
     def contains(self, ptr):
         """Check if the stack contains the given pointer."""
@@ -227,6 +235,7 @@ class _StackData:
             track_uuid=self.uuid, timestamp=timestamp, loc=loc, name=loc_name
         )
         self._mark_usage(ptr, timestamp)
+        self._open_zones_count += 1
 
     def end_zone(self, timestamp):
         """Ends the current zone in this stack."""
@@ -235,6 +244,7 @@ class _StackData:
             self._open_zone_dto = None
             self._open_zone_ptr = None
         yield emit_dto.ZoneEnd(track_uuid=self.uuid, timestamp=timestamp)
+        self._open_zones_count -= 1
 
     def open_zone_dto(self, ptr):
         """Returns the DTO object for the open zone, if the open zone is for `ptr`."""
@@ -248,8 +258,13 @@ class _StackData:
         if stack_ptr < self._lowest_seen:
             self._lowest_seen = stack_ptr
 
+    @property
     def name(self):
         return self._name
+
+    @property
+    def open_zone_count(self):
+        return self._open_zones_count
 
 
 def _round_up_to_page_size(x):
@@ -294,11 +309,56 @@ class _ThreadData:
             track_uuid=self.uuid,
             timestamp=timestamp,
             loc=None,
-            name=stack.name(),
+            name=stack.name,
         )
 
     def _emit_zone_end(self, timestamp):
         return emit_dto.ZoneEnd(track_uuid=self.uuid, timestamp=timestamp)
+
+
+class _StacksStats:
+    """Manages statistics about the stacks."""
+
+    def __init__(self, track_emitter: _TrackEmitter):
+        self._track_emitter = track_emitter
+        self._num_stacks_uuid = track_emitter.next_uuid()
+        self._num_stacks = 0
+        self._to_emit = [
+            emit_dto.CounterTrack(
+                track_uuid=self._num_stacks_uuid,
+                parent_track=track_emitter.stacks_track_uuid,
+                name="Number of stacks",
+            )
+        ]
+
+    def on_start_zone(self, stack: _StackData, stack_ptr, timestamp):
+        """Called after a zone was started, to update the statistics."""
+        if stack.open_zone_count == 1:
+            self._num_stacks += 1
+            self._to_emit.append(
+                emit_dto.CounterValue(
+                    track_uuid=self._num_stacks_uuid,
+                    timestamp=timestamp,
+                    value=self._num_stacks,
+                )
+            )
+
+    def on_end_zone(self, stack: _StackData, stack_ptr, timestamp):
+        """Called after a zone was ended, to update the statistics."""
+        if stack.open_zone_count == 0:
+            self._num_stacks -= 1
+            self._to_emit.append(
+                emit_dto.CounterValue(
+                    track_uuid=self._num_stacks_uuid,
+                    timestamp=timestamp,
+                    value=self._num_stacks,
+                )
+            )
+
+    def emit(self):
+        """Emit needed statistics, if we have something to report."""
+        yield from self._to_emit
+        self._to_emit = []
 
 
 def _track_id_gen():
