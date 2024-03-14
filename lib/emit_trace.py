@@ -266,6 +266,10 @@ class _StackData:
     def open_zone_count(self):
         return self._open_zones_count
 
+    @property
+    def size(self):
+        return self.end - self._begin if self._begin > 0 else 0
+
 
 def _round_up_to_page_size(x):
     return (x + 4095) & ~4095
@@ -320,40 +324,52 @@ class _StacksStats:
     """Manages statistics about the stacks."""
 
     def __init__(self, track_emitter: _TrackEmitter):
-        self._track_emitter = track_emitter
         self._num_stacks_uuid = track_emitter.next_uuid()
+        self._stacks_size_uuid = track_emitter.next_uuid()
         self._num_stacks = 0
+        self._stacks_size = 0
         self._to_emit = [
             emit_dto.CounterTrack(
                 track_uuid=self._num_stacks_uuid,
                 parent_track=track_emitter.stacks_track_uuid,
                 name="Number of stacks",
-            )
+            ),
+            emit_dto.CounterTrack(
+                track_uuid=self._stacks_size_uuid,
+                parent_track=track_emitter.stacks_track_uuid,
+                name="Known stacks total size",
+            ),
         ]
 
     def on_start_zone(self, stack: _StackData, stack_ptr, timestamp):
         """Called after a zone was started, to update the statistics."""
         if stack.open_zone_count == 1:
             self._num_stacks += 1
-            self._to_emit.append(
-                emit_dto.CounterValue(
-                    track_uuid=self._num_stacks_uuid,
-                    timestamp=timestamp,
-                    value=self._num_stacks,
-                )
-            )
+            self._stacks_size += stack.size
+            self._add_counter_values(timestamp)
 
     def on_end_zone(self, stack: _StackData, stack_ptr, timestamp):
         """Called after a zone was ended, to update the statistics."""
         if stack.open_zone_count == 0:
             self._num_stacks -= 1
-            self._to_emit.append(
-                emit_dto.CounterValue(
-                    track_uuid=self._num_stacks_uuid,
-                    timestamp=timestamp,
-                    value=self._num_stacks,
-                )
+            self._stacks_size -= stack.size
+            self._add_counter_values(timestamp)
+
+    def _add_counter_values(self, timestamp):
+        self._to_emit.append(
+            emit_dto.CounterValue(
+                track_uuid=self._num_stacks_uuid,
+                timestamp=timestamp,
+                value=self._num_stacks,
             )
+        )
+        self._to_emit.append(
+            emit_dto.CounterValue(
+                track_uuid=self._stacks_size_uuid,
+                timestamp=timestamp,
+                value=self._stacks_size,
+            )
+        )
 
     def emit(self):
         """Emit needed statistics, if we have something to report."""
