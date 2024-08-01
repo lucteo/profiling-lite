@@ -51,8 +51,8 @@ void emit_zone_flow_terminate(const void* stack_ptr, uint64_t flow_id);
 void emit_zone_category(const void* stack_ptr, const char* static_name);
 
 void define_counter_track(uint64_t tid, const char* name);
-void emit_counter_value(thread_id tid, timestamp_t timestamp, int64_t value);
-void emit_counter_value(thread_id tid, timestamp_t timestamp, double value);
+void emit_counter_value(uint64_t tid, timestamp_t timestamp, int64_t value);
+void emit_counter_value(uint64_t tid, timestamp_t timestamp, double value);
 
 struct zone {
   explicit zone(const location* loc) { emit_zone_start(this, get_current_thread(), now(), loc); }
