@@ -339,6 +339,8 @@ def _packet_generator(filename):
             if show_progress and counter % 25_000 == 0:
                 cur_pos = file.tell()
                 print(f"\rProcessing {filename}: {int(100*cur_pos/file_size)}%", end="")
+            # if counter > 1_000_000:
+            #     break
     if show_progress:
         print(f"\rProcessing {filename}: 100%")
         print("Done.")
@@ -469,7 +471,7 @@ def _packets_to_dtos(packets):
             )
 
         elif isinstance(packet, _CounterTrackPacket):
-            yield dto.CounterTrack(tid=packet.tid, name=_get_string(packet.track_name))
+            yield dto.CounterTrack(tid=packet.tid, name=packet.track_name)
         elif isinstance(packet, _CounterValueIntPacket):
             yield dto.CounterValue(
                 tid=packet.tid, timestamp=packet.timestamp, value=packet.value

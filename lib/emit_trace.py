@@ -22,9 +22,10 @@ def emit_trace(parse_items):
             stacks.add_stack(end=item.end, begin=item.begin, name=item.name)
             yield from stacks.emit_pending_tracks()
         elif isinstance(item, parse_dto.Thread):
-            uuid = track_emitter.next_uuid()
-            yield track_emitter.thread_mapping_track(uuid, item.tid, item.thread_name)
-            threads[item.tid] = _ThreadData(uuid)
+            if item.tid not in threads:
+                uuid = track_emitter.next_uuid()
+                threads[item.tid] = _ThreadData(uuid)
+            yield track_emitter.thread_mapping_track(threads[item.tid].uuid, item.tid, item.thread_name)
 
         elif isinstance(item, parse_dto.Location):
             loc = emit_dto.Location(
@@ -86,13 +87,18 @@ def emit_trace(parse_items):
         elif isinstance(item, parse_dto.ZoneParam):
             dto = open_zones[item.stack_ptr].open_zone_dto(item.stack_ptr)
             if dto:
-                dto.params[item.name] = item.value
+                value, name = adjust_parameter(item.value, item.name)
+                dto.params[name] = value
 
         elif isinstance(item, parse_dto.CounterTrack):
-            uuid = track_emitter.next_uuid()
-            yield track_emitter.counter_track(uuid, item.name)
-            counter_tracks[item.tid] = uuid
+            if item.tid not in counter_tracks:
+                uuid = track_emitter.next_uuid()
+                counter_tracks[item.tid] = uuid
+            yield track_emitter.counter_track(counter_tracks[item.tid], item.name)
         elif isinstance(item, parse_dto.CounterValue):
+            if item.tid not in counter_tracks:
+                uuid = track_emitter.next_uuid()
+                counter_tracks[item.tid] = uuid
             yield emit_dto.CounterValue(
                 track_uuid=counter_tracks[item.tid],
                 timestamp=item.timestamp,
@@ -102,9 +108,20 @@ def emit_trace(parse_items):
         else:
             raise ValueError(f"Unknown object {item}")
 
+    # If we have open zones, make sure we emit at least their start.
+    for stack in set(open_zones.values()):
+        yield from stack.pending_zone_dto()
+
     # Close the thread mapping tracks
     for t in threads.values():
         yield from t.close()
+
+def adjust_parameter(value, param_name):
+    """Adjust the value of the parameter to convert to the right type."""
+    if param_name.endswith(",x"):
+        return f"0x{value:x}", param_name[:-2]
+    else:
+        return value, param_name
 
 
 class _TrackEmitter:
@@ -251,6 +268,12 @@ class _StackData:
         if self._open_zone_ptr == ptr:
             return self._open_zone_dto
         return None
+
+    def pending_zone_dto(self):
+        """Yield the DTO object for the open zone, if any."""
+        if self._open_zone_dto:
+            yield self._open_zone_dto
+            self._open_zone_dto = None
 
     def _mark_usage(self, stack_ptr, timestamp):
         """Mark the usage of `stack_ptr` inside this stack."""

@@ -658,7 +658,7 @@ void define_counter_track(uint64_t tid, const char* name) {
   memcpy(to_uint8_ptr(p) + sizeof(*p), name, p->name_size_);
   commit(p);
 }
-void emit_counter_value(thread_id tid, timestamp_t timestamp, int64_t value) {
+void emit_counter_value(uint64_t tid, timestamp_t timestamp, int64_t value) {
   auto& buffer = detail::Profiler::instance().buffer();
   auto p = buffer.acquire_packet_static<detail::packet_type::counter_value_int>();
   p->tid_ = tid;
@@ -666,7 +666,7 @@ void emit_counter_value(thread_id tid, timestamp_t timestamp, int64_t value) {
   p->value_ = value;
   commit(p);
 }
-void emit_counter_value(thread_id tid, timestamp_t timestamp, double value) {
+void emit_counter_value(uint64_t tid, timestamp_t timestamp, double value) {
   auto& buffer = detail::Profiler::instance().buffer();
   auto p = buffer.acquire_packet_static<detail::packet_type::counter_value_double>();
   p->tid_ = tid;
